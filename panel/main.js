@@ -135,14 +135,30 @@ function buildLookStrip() {
   lookStripEl.innerHTML = "";
   LOOKS.forEach((look, i) => {
     const lookIndex = i + 1; // 1-based, igual que el popup de AE
-    const num = document.createElement("button");
-    num.type = "button";
+    // <div> y no <button>: este runtime de UXP pinta el fondo nativo del
+    // boton aunque se le pida "appearance: none", y eso se comia el fondo
+    // del Look seleccionado (quedaba en un trazo). Ver la nota del CSS en
+    // index.html. Como un <div> no es un control, hay que reponerle a mano
+    // el rol, el foco y la activacion por teclado.
+    const num = document.createElement("div");
     num.className = "look-num";
+    num.setAttribute("role", "button");
+    num.setAttribute("tabindex", "0");
+    num.setAttribute("aria-label", `Look ${lookIndex}: ${look.name}`);
     num.dataset.lookIndex = String(lookIndex);
     num.textContent = String(lookIndex).padStart(2, "0");
     num.title = look.name;
-    if (lookIndex === selectedLookIndex) num.classList.add("selected");
+    if (lookIndex === selectedLookIndex) {
+      num.classList.add("selected");
+      num.setAttribute("aria-pressed", "true");
+    }
     num.addEventListener("click", () => selectLook(lookIndex));
+    num.addEventListener("keydown", (ev) => {
+      if (ev.key === "Enter" || ev.key === " ") {
+        ev.preventDefault();
+        selectLook(lookIndex);
+      }
+    });
     lookStripEl.appendChild(num);
   });
   log(`Tira de Looks construida: ${LOOKS.length} opciones.`);
@@ -154,12 +170,22 @@ function renderLookReadout() {
   lookNameLabelEl.textContent = LOOKS[selectedLookIndex - 1]?.name ?? "";
 }
 
+/** Marca en la tira cual es el Look puesto. Un solo sitio, porque lo
+ *  necesitan tanto el clic del usuario como la sincronizacion desde el
+ *  clip, y aria-pressed tiene que seguir a la clase. */
+function renderLookStripSelection() {
+  [...lookStripEl.children].forEach((num) => {
+    const esta = Number(num.dataset.lookIndex) === selectedLookIndex;
+    num.classList.toggle("selected", esta);
+    if (esta) num.setAttribute("aria-pressed", "true");
+    else num.removeAttribute("aria-pressed");
+  });
+}
+
 function selectLook(lookIndex) {
   if (lookIndex === selectedLookIndex) return;
   selectedLookIndex = lookIndex;
-  [...lookStripEl.children].forEach((num) => {
-    num.classList.toggle("selected", Number(num.dataset.lookIndex) === lookIndex);
-  });
+  renderLookStripSelection();
   renderLookReadout();
   applyCurrent({ only: "look" });
 }
@@ -901,9 +927,7 @@ async function syncFromClip() {
         values.look >= 1 && values.look <= LOOKS.length &&
         values.look !== selectedLookIndex) {
       selectedLookIndex = values.look;
-      [...lookStripEl.children].forEach((num) => {
-        num.classList.toggle("selected", Number(num.dataset.lookIndex) === selectedLookIndex);
-      });
+      renderLookStripSelection();
       renderLookReadout();
       changed = true;
     }

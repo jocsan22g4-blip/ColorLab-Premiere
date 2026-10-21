@@ -83,13 +83,22 @@
     overflow-x: auto;
     padding-bottom: 2px;
   }
+  /* LOS NUMEROS SON <div>, NO <button>, Y ES OBLIGATORIO.
+     Este runtime de UXP sigue pintando el fondo nativo del boton aunque se
+     le pida "appearance: none" -- con <button> el recuadro salia gris y el
+     fondo blanco del seleccionado se quedaba en un simple trazo. Un <div>
+     no tiene apariencia nativa que pelear. El rol de boton y el foco de
+     teclado se reponen con role/tabindex y un handler de Enter/Espacio en
+     main.js.
+     Por lo mismo el contorno va en `border` y no en `box-shadow: inset`:
+     tampoco esta verificado que este runtime lo soporte. */
   .look-num {
     flex: 0 0 auto;
     width: 36px;
     height: 36px;
     border-radius: 10px;
-    background: transparent;
-    box-shadow: inset 0 0 0 1px rgba(255,255,255,0.18);
+    background-color: transparent;
+    border: 1px solid rgba(255,255,255,0.18);
     color: #b8babf;
     font-family: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, monospace;
     font-size: 13px;
@@ -97,15 +106,17 @@
     align-items: center;
     justify-content: center;
     cursor: pointer;
+    user-select: none;
+    -webkit-user-select: none;
   }
-  .look-num:hover { box-shadow: inset 0 0 0 1px #4a6cf0; color: #ffffff; }
+  .look-num:hover { border-color: #4a6cf0; color: #ffffff; }
   /* El Look PUESTO va en blanco: es el maximo contraste sobre el fondo
      oscuro y se localiza de un vistazo entre los quince numeros. El azul
      Senal se queda para el hover y el foco de teclado, que son estados
      pasajeros; asi el blanco significa una sola cosa en esta tira. */
   .look-num.selected {
-    background: #ffffff;
-    box-shadow: none;
+    background-color: #ffffff;
+    border-color: #ffffff;
     color: #001b33;
     font-weight: 500;
   }
