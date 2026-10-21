@@ -74,3 +74,11 @@ Mavic 3 D-Log, Mavic Pro D-Log, Apple Log, Apple Log 2). El orden de `CAMERAS` e
 El popup "Camera" del efecto es base-0 en Premiere (0 = None), como Look.
 La conversion usa los .cube del fabricante, horneados en un unico LUT junto al Look
 (sin coste por frame); con Split Tone, Bloom o Halation activos corre como pasada previa.
+
+## Aviso de profundidad de bits
+
+Si la secuencia activa tiene apagada "Profundidad de bits máxima"
+(`SequenceSettings.getMaximumBitDepth()`, desde Premiere 25.6), el panel muestra
+un aviso con un boton "Activar" (`setMaximumBitDepth(true)`). Sin esa opcion
+Premiere rasteriza la cadena a 8 bits al haber un efecto y aparece banding que
+no viene de Color Lab. Se comprueba cada 3 s; si la API falla, el aviso no se muestra.

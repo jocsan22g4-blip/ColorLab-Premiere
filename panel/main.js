@@ -1640,6 +1640,56 @@ log("Panel cargado. Selecciona un Look o ajusta cualquier control para aplicarlo
 // Controles de efectos aparezca en el panel.
 setInterval(() => { syncFromClip(); }, SYNC_INTERVAL_MS);
 
+/* ---------------- Aviso de profundidad de bits ---------------- */
+//
+// Con "Profundidad de bits maxima" apagada en la secuencia, Premiere rasteriza
+// la cadena a 8 bits en cuanto hay un efecto en ella (Color Lab incluido) y
+// entrega 8 bits dentro de un contenedor float: banding en degradados que el
+// cliente atribuira a Color Lab (ver el informe, caso del 21 oct). La API lo
+// expone como SequenceSettings.getMaximumBitDepth() (desde 25.6).
+//
+// Se muestra un aviso discreto SOLO si la secuencia activa lo tiene apagado, y
+// un boton para encenderlo. Si la API no existe o falla, el aviso no aparece.
+const bitDepthWarnEl = document.getElementById("bitDepthWarn");
+const btnBitDepthEl = document.getElementById("btnBitDepth");
+let bitDepthSeq = null;
+
+async function checkBitDepth() {
+  if (!bitDepthWarnEl) return;
+  try {
+    const project = await premierepro.Project.getActiveProject();
+    const sequence = project ? await project.getActiveSequence() : null;
+    if (!sequence || typeof sequence.getSettings !== "function") { bitDepthWarnEl.style.display = "none"; return; }
+    const settings = await sequence.getSettings();
+    if (!settings || typeof settings.getMaximumBitDepth !== "function") { bitDepthWarnEl.style.display = "none"; return; }
+    bitDepthSeq = settings;
+    const on = await settings.getMaximumBitDepth();
+    bitDepthWarnEl.style.display = on === false ? "" : "none";
+  } catch {
+    bitDepthWarnEl.style.display = "none";
+  }
+}
+setInterval(() => { checkBitDepth(); }, 3000);
+setTimeout(() => { checkBitDepth(); }, 600);
+
+async function enableBitDepth() {
+  try {
+    if (!bitDepthSeq || typeof bitDepthSeq.setMaximumBitDepth !== "function") return;
+    const ok = await bitDepthSeq.setMaximumBitDepth(true);
+    log(`setMaximumBitDepth(true) -> ${ok}`);
+    if (ok) setStatus("Profundidad de bits máxima activada en la secuencia", "ok");
+    else setStatus("No se pudo activar. Actívala en Secuencia › Configuración de secuencia.", "warn");
+  } catch (e) {
+    log(`setMaximumBitDepth fallo: ${e}`, "warn");
+    setStatus("No se pudo activar. Actívala en Secuencia › Configuración de secuencia.", "warn");
+  }
+  checkBitDepth();
+}
+btnBitDepthEl?.addEventListener("click", enableBitDepth);
+btnBitDepthEl?.addEventListener("keydown", (ev) => {
+  if (ev.key === "Enter" || ev.key === " ") { ev.preventDefault(); enableBitDepth(); }
+});
+
 // Alt/Opcion + clic en el logotipo muestra u oculta el Diagnostico. No esta a
 // la vista del usuario, pero soporte lo puede abrir sin recompilar nada.
 document.getElementById("brand")?.addEventListener("click", (ev) => {
