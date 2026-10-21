@@ -407,7 +407,7 @@
 </head>
 <body>
   <div id="app">
-  <div class="brand">
+  <div class="brand" id="brand" title="">
     <img src="./assets/brand/colorlab-mark.png" alt="" />
     <span class="wordmark"><b>Color</b><span>Lab</span></span>
   </div>
@@ -440,7 +440,10 @@
     <div id="status"></div>
   </section>
 
-  <section>
+  <!-- Diagnostico: oculto para el usuario. Lo necesita soporte (fue lo que
+       permitio encontrar los fallos de lectura del 21 oct). Se muestra con
+       Alt/Opcion + clic sobre el logotipo. -->
+  <section id="diagnosticsSection" style="display:none">
     <details id="diagnostics">
       <summary>Diagnostico</summary>
       <button id="btnDiagnose" class="subtle">Listar efectos y clip seleccionado</button>

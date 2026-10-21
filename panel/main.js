@@ -1561,3 +1561,11 @@ log("Panel cargado. Selecciona un Look o ajusta cualquier control para aplicarlo
 // hace que cambiar de clip muestre SUS valores y que lo ajustado en
 // Controles de efectos aparezca en el panel.
 setInterval(() => { syncFromClip(); }, SYNC_INTERVAL_MS);
+
+// Alt/Opcion + clic en el logotipo muestra u oculta el Diagnostico. No esta a
+// la vista del usuario, pero soporte lo puede abrir sin recompilar nada.
+document.getElementById("brand")?.addEventListener("click", (ev) => {
+  if (!ev.altKey) return;
+  const sec = document.getElementById("diagnosticsSection");
+  if (sec) sec.style.display = sec.style.display === "none" ? "" : "none";
+});
