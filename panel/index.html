@@ -24,6 +24,21 @@
    */
   :root { color-scheme: dark; }
   * { box-sizing: border-box; }
+  /* Este runtime de UXP aplica el estilo NATIVO del boton (una pildora gris
+     del SO) a cualquier <button>, incluso con background/border propios --
+     a diferencia de un navegador normal, donde declarar background-color ya
+     desactiva la apariencia nativa. Sin "appearance: none" explicito, las
+     tarjetas de Look (son <button>) y los botones quedaban todos como
+     pildoras grises del sistema, con el contenido interno (la miniatura)
+     invisible. Hallazgo en vivo, probando en Premiere real. */
+  button {
+    appearance: none;
+    -webkit-appearance: none;
+    -moz-appearance: none;
+    font: inherit;
+    color: inherit;
+    text-align: inherit;
+  }
   body {
     margin: 0;
     padding: 14px;
