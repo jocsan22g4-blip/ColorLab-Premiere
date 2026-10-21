@@ -230,7 +230,12 @@ btnApply.addEventListener("click", async () => {
       }, "Color Lab: insertar efecto");
     });
   } catch (e) {
-    log(`Fallo insertando el efecto en la cadena: ${e}`, "error");
+    const msg = String(e);
+    if (/invalid parameter/i.test(msg)) {
+      log(`No se pudo insertar el efecto (Invalid parameter). Lo mas probable es que el item seleccionado no tenga una cadena de video valida para un filtro de video (p. ej. es en realidad un clip de solo audio, aunque tenga getComponentChain()). ${msg}`, "error");
+    } else {
+      log(`Fallo insertando el efecto en la cadena: ${msg}`, "error");
+    }
     return;
   }
   if (!appended) {
