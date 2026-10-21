@@ -85,6 +85,26 @@ const LOOKS = [
   { id: "look_15", name: "Black & White" },
 ];
 
+// Debe coincidir, en el mismo orden, con ae/cameras/cameras.manifest de
+// ColorLab-3. El popup "Camera" del efecto es: 0 = None, i = camara i del
+// manifiesto (base-0 en Premiere, como Look). Los nombres aqui son cortos
+// para que quepan como fichas.
+const CAMERAS = [
+  "None",
+  "Sony S-Log3",
+  "Canon C-Log3",
+  "Panasonic V-Log",
+  "Cinelike D",
+  "Blackmagic Gen 5",
+  "RED Log3G10",
+  "DJI D-Log M",
+  "Mavic 3 D-Log",
+  "Mavic Pro D-Log",
+  "Apple Log",
+  "Apple Log 2",
+];
+let selectedCameraIndex = 0; // 0 = None
+
 const INTENSITY_MIN = 0.0;
 const INTENSITY_MAX = 100.0;
 const kIntensityDefaultUi = 100.0; // igual a kIntensityDefault en ae/ColorLabAE.h
@@ -167,6 +187,38 @@ function buildLookStrip() {
   });
   log(`Tira de Looks construida: ${LOOKS.length} opciones.`);
   renderLookReadout();
+}
+
+/* ---------------- Camara (log -> Rec.709) ---------------- */
+
+const cameraChipEls = [];
+
+function renderCameraSelection() {
+  cameraChipEls.forEach((el, i) => el.classList.toggle("selected", i === selectedCameraIndex));
+}
+
+function selectCamera(idx) {
+  if (idx === selectedCameraIndex) return;
+  selectedCameraIndex = idx;
+  renderCameraSelection();
+  applyCurrent({ only: "camera" });
+}
+
+function buildCameraChips() {
+  const host = document.getElementById("cameraChips");
+  host.innerHTML = "";
+  cameraChipEls.length = 0;
+  CAMERAS.forEach((name, idx) => {
+    const chip = makeEl("div", "chip", { role: "button", tabindex: "0" });
+    chip.textContent = name;
+    chip.addEventListener("click", () => selectCamera(idx));
+    chip.addEventListener("keydown", (ev) => {
+      if (ev.key === "Enter" || ev.key === " ") { ev.preventDefault(); selectCamera(idx); }
+    });
+    host.appendChild(chip);
+    cameraChipEls.push(chip);
+  });
+  renderCameraSelection();
 }
 
 function renderLookReadout() {
@@ -909,6 +961,7 @@ function indexParams(live) {
     let p;
     try { p = live.getParam(i); } catch { continue; }
     const name = p?.displayName;
+    if (name === "Camera") { map.camera = p; continue; }
     if (name === "Look") { map.look = p; continue; }
     if (name === "Intensity") { map.intensity = p; continue; }
     const opening = SECTIONS.find((sec) => sec.enable === name);
@@ -974,6 +1027,12 @@ function writeParams(target, { only = null, silent = false } = {}) {
         const { map, count } = indexParams(live);
         const lookParam = map.look || null;
         const intensityParam = map.intensity || null;
+
+        if (wants("camera") && map.camera) {
+          // Base-0 en Premiere: 0 = None.
+          const kf = map.camera.createKeyframe(selectedCameraIndex);
+          compoundAction.addAction(map.camera.createSetValueAction(kf, true));
+        }
 
         if (wants("look")) {
           if (lookParam) {
@@ -1214,6 +1273,10 @@ async function readParamsFromClip(target, sequence) {
     // Premiere guarda el popup base-0; el panel es base-1.
     if (v !== null) out.look = Math.round(v) + 1;
   }
+  if (map.camera) {
+    const v = await readParamValue(map.camera, tickTimes);
+    if (v !== null) out.camera = Math.round(v);
+  }
   if (map.intensity) {
     const v = await readParamValue(map.intensity, tickTimes);
     if (v !== null) out.intensity = v;
@@ -1261,6 +1324,11 @@ function anySliderDragging() {
 function resetPanelToDefaults() {
   let changed = false;
 
+  if (selectedCameraIndex !== 0) {
+    selectedCameraIndex = 0;
+    renderCameraSelection();
+    changed = true;
+  }
   if (selectedLookIndex !== 1) {
     selectedLookIndex = 1;
     renderLookStripSelection();
@@ -1329,6 +1397,14 @@ async function syncFromClip() {
     if (Date.now() - lastWriteAt < SYNC_COOLDOWN_MS) return;
 
     let changed = false;
+
+    if (typeof values.camera === "number" &&
+        values.camera >= 0 && values.camera < CAMERAS.length &&
+        values.camera !== selectedCameraIndex) {
+      selectedCameraIndex = values.camera;
+      renderCameraSelection();
+      changed = true;
+    }
 
     if (typeof values.look === "number" &&
         values.look >= 1 && values.look <= LOOKS.length &&
@@ -1506,10 +1582,11 @@ btnDiagnose.addEventListener("click", async () => {
     } else {
       const { map, count } = indexParams(target.live);
       const missing = [];
+      if (!map.camera) missing.push("Camera");
       if (!map.look) missing.push("Look");
       if (!map.intensity) missing.push("Intensity");
       for (const c of ALL_CONTROLS) if (!map[c.key]) missing.push(c.key);
-      log(`Parametros del efecto: ${count}. Ubicados por el panel: ${Object.keys(map).length} de ${2 + ALL_CONTROLS.length}.`);
+      log(`Parametros del efecto: ${count}. Ubicados por el panel: ${Object.keys(map).length} de ${3 + ALL_CONTROLS.length}.`);
       if (missing.length) log(`No ubicados: ${missing.join(", ")}`, "warn");
       const names = [];
       for (let i = 0; i < count; i++) {
@@ -1545,6 +1622,7 @@ btnDiagnose.addEventListener("click", async () => {
 });
 
 try {
+  buildCameraChips();
   buildLookStrip();
 } catch (e) {
   log(`buildLookStrip() fallo: ${e}`, "error");

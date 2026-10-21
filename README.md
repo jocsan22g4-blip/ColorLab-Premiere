@@ -63,3 +63,14 @@ panel/
   assets/looks/*.jpg  miniaturas de los 15 Looks — YA NO SE USAN (la tira es de numeros)
 TESTING.md             como cargar el panel en Premiere y que verificar
 ```
+
+
+## Camera (log -> Rec.709)
+
+Selector de camara encima de los Looks: None (defecto) + 11 camaras (Sony S-Log3,
+Canon C-Log3, Panasonic V-Log, Cinelike D, Blackmagic Gen 5, RED Log3G10, DJI D-Log M,
+Mavic 3 D-Log, Mavic Pro D-Log, Apple Log, Apple Log 2). El orden de `CAMERAS` en
+`panel/main.js` debe coincidir con `ColorLab-3/ae/cameras/cameras.manifest`.
+El popup "Camera" del efecto es base-0 en Premiere (0 = None), como Look.
+La conversion usa los .cube del fabricante, horneados en un unico LUT junto al Look
+(sin coste por frame); con Split Tone, Bloom o Halation activos corre como pasada previa.
