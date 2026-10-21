@@ -27,9 +27,13 @@
  * obligaba al usuario a elegir donde exponer, y alejaba el producto de su
  * version de Resolve. Las herramientas son Look, Intensity, Division de
  * tonos, Bloom, Halation y Film Grain -- las mismas en los dos hosts. Las
- * cuatro ultimas viven en secciones plegables (ver SECTIONS); faltan los
- * colores y los popup "Blend" de Bloom/Halation, que siguen en Controles
- * de efectos.
+ * cuatro ultimas viven en secciones plegables (ver SECTIONS).
+ *
+ * EL TINTE DE BLOOM/HALATION VA POR DESLIZADORES (Hue + Saturation) Y NO POR
+ * SELECTOR DE COLOR: Premiere 26.5.2 pierde el canal azul cuando un panel UXP
+ * escribe un parametro de color (el blanco sale amarillo). Con flotantes no
+ * hay problema. "View Bloom" / "View Halation" muestran solo lo que cada capa
+ * aporta, para ver en que zonas actua.
  *
  * Novedades de la Etapa 3 que SI se quedan:
  *   - Doble clic en cualquier slider (Intensity incluido) = volver a su
@@ -193,7 +197,7 @@ function selectLook(lookIndex) {
  * `idPrefix` espera cuatro elementos en el DOM: `${idPrefix}Slider`,
  * `${idPrefix}Mask`, `${idPrefix}Thumb`, `${idPrefix}Value`.
  */
-function createSlider({ idPrefix, paramKey, min, max, decimals, defaultValue, onCommit }) {
+function createSlider({ idPrefix, paramKey, min, max, decimals, defaultValue, onCommit, onRender }) {
   const el = document.getElementById(`${idPrefix}Slider`);
   const maskEl = document.getElementById(`${idPrefix}Mask`);
   const thumbEl = document.getElementById(`${idPrefix}Thumb`);
@@ -238,6 +242,7 @@ function createSlider({ idPrefix, paramKey, min, max, decimals, defaultValue, on
     maskEl.style.width = `${100 - pct}%`;
     thumbEl.style.left = `${pct}%`;
     valueEl.textContent = value.toFixed(decimals);
+    if (onRender) onRender();
   }
 
   function setFromClientX(clientX) {
@@ -359,42 +364,18 @@ const intensitySlider = createSlider({
  * no los limites duros). Si se tocan alla, hay que tocarlos aqui.
  *
  * POR QUE `name` Y NO UN INDICE. Premiere entrega los parametros por
- * posicion, pero "Amount", "Size", "Threshold" y "Color" se repiten en
+ * posicion, pero "Amount", "Size", "Threshold", "Tint Hue" y "Tint Saturation" se repiten en
  * varias secciones, asi que el nombre solo no identifica nada. Cada control
  * se ubica por SU SECCION: el parametro "Enable <seccion>" (unico) abre la
  * seccion y los nombres siguientes pertenecen a ella hasta el siguiente
  * "Enable". Ver indexParams().
  *
- * Fuera del panel, a proposito: los colores de Bloom/Halation y los popup
- * "Blend" -- se quedan en Controles de efectos hasta verificar como expone
- * Premiere esos tipos a UXP.
+ * Halation no lleva Blend en el panel, a proposito (se queda en Controles de
+ * efectos).
  */
 // Mismo orden que kBlendChoices en ae/ColorLabAE.h -- CONGELADO alli, porque
 // el host guarda el popup por indice. En Premiere el indice es base-0.
 const BLEND_MODES = ["Screen", "Add", "Subtract", "Multiply", "Overlay", "Soft Light", "Hard Light", "Lighten", "Normal"];
-
-// Tintes de partida para Bloom. El primero es el defecto del efecto.
-const COLOR_PRESETS = [
-  { r: 255, g: 140, b: 77  },
-  { r: 255, g: 255, b: 255 },
-  { r: 255, g: 200, b: 120 },
-  { r: 255, g: 90,  b: 70  },
-  { r: 255, g: 120, b: 180 },
-  { r: 120, g: 200, b: 255 },
-  { r: 120, g: 255, b: 190 },
-];
-
-function colorToHex(c) {
-  const h = (n) => Math.max(0, Math.min(255, Math.round(n))).toString(16).padStart(2, "0");
-  return `#${h(c.r)}${h(c.g)}${h(c.b)}`.toUpperCase();
-}
-function hexToColor(str) {
-  const m = /^#?([0-9a-f]{6})$/i.exec(String(str).trim());
-  if (!m) return null;
-  const n = parseInt(m[1], 16);
-  return { r: (n >> 16) & 255, g: (n >> 8) & 255, b: n & 255 };
-}
-function sameColor(a, b) { return a && b && a.r === b.r && a.g === b.g && a.b === b.b; }
 
 const SECTIONS = [
   {
@@ -413,8 +394,10 @@ const SECTIONS = [
       { key: "bloom.amount",    name: "Amount",    label: "Amount",    kind: "float", min: 0,   max: 100, dec: 1, def: 35 },
       { key: "bloom.size",      name: "Size",      label: "Size",      kind: "float", min: 0.1, max: 10,  dec: 2, def: 1.5 },
       { key: "bloom.threshold", name: "Threshold", label: "Threshold", kind: "float", min: 0,   max: 100, dec: 1, def: 65 },
-      { key: "bloom.color",     name: "Color",     label: "Color",     kind: "color", def: { r: 255, g: 140, b: 77 } },
+      { key: "bloom.tint_hue",  name: "Tint Hue",        label: "Tint Hue",        kind: "float", min: 0, max: 360, dec: 1, def: 21.43, tint: "bloom" },
+      { key: "bloom.tint_sat",  name: "Tint Saturation", label: "Tint Saturation", kind: "float", min: 0, max: 100, dec: 1, def: 70,    tint: "bloom" },
       { key: "bloom.blend",     name: "Blend",     label: "Blend",     kind: "choice", options: BLEND_MODES, def: 0 },
+      { key: "bloom.view",      name: "View Bloom", label: "View Bloom", kind: "bool", def: false },
     ],
   },
   {
@@ -425,6 +408,9 @@ const SECTIONS = [
       { key: "halo.threshold", name: "Threshold", label: "Threshold", kind: "float", min: 0,    max: 100, dec: 1, def: 60 },
       { key: "halo.edge",      name: "Edge",      label: "Edge",      kind: "float", min: 0,    max: 100, dec: 1, def: 80 },
       { key: "halo.spread",    name: "Spread",    label: "Spread",    kind: "float", min: 0,    max: 100, dec: 1, def: 100 },
+      { key: "halo.tint_hue",  name: "Tint Hue",        label: "Tint Hue",        kind: "float", min: 0, max: 360, dec: 1, def: 16.5, tint: "halo" },
+      { key: "halo.tint_sat",  name: "Tint Saturation", label: "Tint Saturation", kind: "float", min: 0, max: 100, dec: 1, def: 80,   tint: "halo" },
+      { key: "halo.view",      name: "View Halation", label: "View Halation", kind: "bool", def: false },
     ],
   },
   {
@@ -441,24 +427,6 @@ const SECTIONS = [
     ],
   },
 ];
-
-// EL COLOR ESTA APAGADO, Y ES UN FALLO DE PREMIERE, NO DE ESTE PANEL.
-//
-// Confirmado en Premiere 26.5.2 (21 oct 2026): escribir un parametro de
-// color desde UXP pierde el canal AZUL. #FFFFFF aparece como amarillo y el
-// celeste #78C8FF como verde, aunque el valor enviado es correcto. Es un
-// error de Adobe ya reportado (versiones 26.0.2 a 26.3 como minimo) y no
-// hay forma de esquivarlo desde aqui: ni la lectura (devuelve el valor
-// "pretendido") lo delata, solo se ve en pantalla.
-//
-// Un control que pinta colores equivocados es peor que no tenerlo, asi que
-// se quita del panel y el color de Bloom se elige en Controles de efectos,
-// donde funciona. Todo el codigo del color sigue aqui: cuando Adobe lo
-// corrija, poner esta constante a true y comprobar con un blanco.
-const COLOR_WRITE_ENABLED = false;
-if (!COLOR_WRITE_ENABLED) {
-  for (const sec of SECTIONS) sec.controls = sec.controls.filter((c) => c.kind !== "color");
-}
 
 /// Todos los controles de las secciones, planos, incluyendo el "Enable" de
 /// cada una (clave `<id>.enable`).
@@ -506,6 +474,31 @@ function createSwitch({ el, label, defaultValue, onChange }) {
     set value(v) { value = !!v; render(); },
     render,
   };
+}
+
+/// HSV con V = 1 -> "rgb(r,g,b)". La misma formula que
+/// bridge::TintFromHueSat en el efecto (ae/bridge/GlowView.cpp), para que la
+/// muestra del panel sea el color que de verdad se aplica.
+function tintCss(hueDeg, satPct) {
+  const s = Math.max(0, Math.min(1, satPct / 100));
+  let h = ((hueDeg % 360) + 360) % 360;
+  const sector = h / 60;
+  const i = Math.min(5, Math.floor(sector));
+  const f = sector - i;
+  const p = 1 - s, q = 1 - s * f, t = 1 - s * (1 - f);
+  const [r, g, b] = [[1, t, p], [q, 1, p], [p, 1, t], [p, q, 1], [t, p, 1], [1, p, q]][i];
+  const to8 = (v) => Math.round(v * 255);
+  return `rgb(${to8(r)},${to8(g)},${to8(b)})`;
+}
+
+const tintPreviews = {};   // id de seccion -> <div> de la muestra
+
+function updateTintPreview(secId) {
+  const el = tintPreviews[secId];
+  const hue = controlUi[`${secId}.tint_hue`];
+  const sat = controlUi[`${secId}.tint_sat`];
+  if (!el || !hue || !sat) return;
+  el.style.backgroundColor = tintCss(hue.value, sat.value);
 }
 
 function buildSections() {
@@ -600,52 +593,12 @@ function buildSections() {
           get value() { return current; },
           set value(v) { current = Math.max(0, Math.min(c.options.length - 1, Math.round(v))); paint(); },
         };
-      } else if (c.kind === "color") {
-        const row = makeEl("div", "control-row");
-        const lab = makeEl("label");
-        lab.textContent = c.label;
-        const hex = makeEl("span", "slider-value", { tabindex: "0", title: "Haz clic para escribir un color (#RRGGBB)" });
-        row.appendChild(lab);
-        row.appendChild(hex);
-        body.appendChild(row);
-        const sw = makeEl("div", "swatches");
-        let current = { ...c.def };
-        const chips = COLOR_PRESETS.map((col) => {
-          const el = makeEl("div", "swatch", { role: "button", tabindex: "0", title: colorToHex(col) });
-          el.style.backgroundColor = colorToHex(col);
-          const pick = () => { current = { ...col }; paint(); applyCurrent({ only: c.key }); };
-          el.addEventListener("click", pick);
-          el.addEventListener("keydown", (ev) => {
-            if (ev.key === "Enter" || ev.key === " ") { ev.preventDefault(); pick(); }
-          });
-          sw.appendChild(el);
-          return { el, col };
-        });
-        const paint = () => {
-          hex.textContent = colorToHex(current);
-          chips.forEach(({ el, col }) => el.classList.toggle("selected", sameColor(col, current)));
-        };
-        paint();
-        body.appendChild(sw);
-        hex.addEventListener("click", () => {
-          hex.contentEditable = "true";
-          hex.focus();
-          document.execCommand && document.execCommand("selectAll", false, null);
-        });
-        hex.addEventListener("blur", () => {
-          hex.contentEditable = "false";
-          const parsed = hexToColor(hex.textContent);
-          if (parsed) { current = parsed; paint(); applyCurrent({ only: c.key }); } else { paint(); }
-        });
-        hex.addEventListener("keydown", (ev) => {
-          if (ev.key === "Enter") { ev.preventDefault(); hex.blur(); }
-          else if (ev.key === "Escape") { ev.preventDefault(); paint(); hex.contentEditable = "false"; hex.blur(); }
-        });
-        controlUi[c.key] = {
-          get value() { return current; },
-          set value(v) { current = { r: v.r, g: v.g, b: v.b }; paint(); },
-        };
       } else {
+        if (c.tint && c.key.endsWith("tint_hue")) {
+          const prev = makeEl("div", "tint-preview", { title: "Color de tinte resultante" });
+          tintPreviews[c.tint] = prev;
+          body.appendChild(prev);
+        }
         const row = makeEl("div", "control-row");
         const lab = makeEl("label");
         lab.textContent = c.label;
@@ -670,7 +623,9 @@ function buildSections() {
           decimals: c.dec,
           defaultValue: c.def,
           onCommit: () => applyCurrent({ only: c.key }),
+          onRender: c.tint ? () => updateTintPreview(c.tint) : null,
         });
+        if (c.tint) updateTintPreview(c.tint);
       }
     }
   }
@@ -963,33 +918,7 @@ function indexParams(live) {
 
 /// Crea el fotograma clave. Las casillas se intentan primero como booleano;
 /// si el runtime no lo acepta, como 0/1 (no esta verificado cual quiere).
-let colorFormLogged = false;
-function makePremiereColor(c) {
-  const P = premierepro;
-  const r = c.r / 255, g = c.g / 255, b = c.b / 255;
-  // Lo documentado en el foro de Adobe: new Color(r, g, b, a) con 0..1.
-  try {
-    if (typeof P.Color === "function") return new P.Color(r, g, b, 1);
-  } catch (e) {
-    if (!colorFormLogged) log(`new Color(r,g,b,a) fallo: ${e}`, "warn");
-  }
-  for (const fn of ["createFromRGBA", "fromRGBA", "create"]) {
-    try {
-      if (typeof P.Color?.[fn] === "function") return P.Color[fn](r, g, b, 1);
-    } catch {}
-  }
-  return null;
-}
-
 function makeKeyframe(param, control, value) {
-  if (control.kind === "color") {
-    const col = makePremiereColor(value);
-    if (!col) {
-      log("No se pudo construir un Color de Premiere: no se escribe el color.", "error");
-      return null;
-    }
-    return param.createKeyframe(col);
-  }
   if (control.kind === "choice") return param.createKeyframe(value);   // base-0, como Look
   if (control.kind !== "bool") return param.createKeyframe(value);
   try {
@@ -1193,41 +1122,6 @@ async function readParamValue(param, tickTimes) {
   return null;
 }
 
-/// Saca {r,g,b} 0..255 de lo que devuelva el runtime para un Color. La forma
-/// exacta no esta verificada: se aceptan r/g/b, red/green/blue o un array, en
-/// 0..1 o en 0..255.
-let colorShapeLogged = false;
-function parseColor(raw) {
-  if (raw === null || raw === undefined) return null;
-  let r, g, b;
-  if (Array.isArray(raw)) { [r, g, b] = raw; }
-  else if (typeof raw === "object") {
-    r = raw.r ?? raw.red ?? raw.R;
-    g = raw.g ?? raw.green ?? raw.G;
-    b = raw.b ?? raw.blue ?? raw.B;
-  }
-  if (![r, g, b].every((n) => typeof n === "number" && Number.isFinite(n))) return null;
-  const k = (r <= 1.0001 && g <= 1.0001 && b <= 1.0001) ? 255 : 1;
-  return { r: Math.round(r * k), g: Math.round(g * k), b: Math.round(b * k) };
-}
-
-async function readColorValue(param) {
-  if (typeof param?.getValueAtTime !== "function" || !cachedTickTime) return null;
-  try {
-    const raw = await param.getValueAtTime(cachedTickTime.t);
-    const col = parseColor(raw);
-    if (!col && !colorShapeLogged) {
-      colorShapeLogged = true;
-      let desc;
-      try { desc = JSON.stringify(raw); } catch { desc = String(raw); }
-      log(`El color leido no tiene forma r/g/b conocida (${typeof raw}: ${desc}); el color no se sincroniza desde el clip.`, "warn");
-    }
-    return col;
-  } catch {
-    return null;
-  }
-}
-
 /** Lee del clip todo lo que el panel controla. */
 async function readParamsFromClip(target, sequence) {
   const { live } = target;
@@ -1256,11 +1150,6 @@ async function readParamsFromClip(target, sequence) {
   await Promise.all(ALL_CONTROLS.map(async (c) => {
     const p = map[c.key];
     if (!p) return;
-    if (c.kind === "color") {
-      const col = await readColorValue(p);
-      if (col) out[c.key] = col;
-      return;
-    }
     const v = await readParamValue(p, tickTimes);
     if (v === null) return;
     out[c.key] = c.kind === "bool" ? v >= 0.5 : c.kind === "choice" ? Math.round(v) : v;
@@ -1347,8 +1236,6 @@ async function syncFromClip() {
         if (!!v !== ui.value) { ui.value = v; changed = true; }
       } else if (c.kind === "choice") {
         if (v !== ui.value) { ui.value = v; changed = true; }
-      } else if (c.kind === "color") {
-        if (!sameColor(v, ui.value)) { ui.value = v; changed = true; }
       } else {
         const tol = 0.5 * Math.pow(10, -c.dec);
         if (Math.abs(v - ui.value) > tol) { ui.value = v; changed = true; }
