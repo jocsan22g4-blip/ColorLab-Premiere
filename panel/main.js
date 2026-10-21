@@ -85,6 +85,9 @@ function setStatus(msg, level = "info") {
 
 function buildLookGrid() {
   lookGridEl.innerHTML = "";
+  let thumbsOk = 0;
+  let thumbsFailed = 0;
+
   LOOKS.forEach((look, i) => {
     const lookIndex = i + 1; // 1-based, igual que el popup de AE
     const card = document.createElement("button");
@@ -93,20 +96,44 @@ function buildLookGrid() {
     card.dataset.lookIndex = String(lookIndex);
     if (lookIndex === selectedLookIndex) card.classList.add("selected");
 
-    const img = document.createElement("img");
-    img.src = `./assets/looks/${look.id}.jpg`;
-    img.alt = look.name;
-    img.loading = "lazy";
+    const thumb = document.createElement("div");
+    thumb.className = "look-thumb";
 
     const label = document.createElement("span");
     label.className = "look-name";
     label.textContent = look.name;
 
-    card.appendChild(img);
+    card.appendChild(thumb);
     card.appendChild(label);
+    // El listener va en el boton completo (no en la miniatura), asi que
+    // funciona incluso si la imagen de fondo nunca cargo.
     card.addEventListener("click", () => selectLook(lookIndex));
     lookGridEl.appendChild(card);
+
+    // Precarga la miniatura con un Image() aparte en vez de depender de un
+    // <img> en el DOM: asi se puede loguear explicitamente si una
+    // miniatura no cargo, en vez de quedar en silencio con una caja vacia.
+    const src = `./assets/looks/${look.id}.jpg`;
+    const pre = new Image();
+    pre.onload = () => {
+      thumb.style.backgroundImage = `url("${src}")`;
+      thumbsOk++;
+    };
+    pre.onerror = () => {
+      thumbsFailed++;
+      log(`No se pudo cargar la miniatura de "${look.name}" (${src}).`, "warn");
+    };
+    pre.src = src;
   });
+
+  log(`Grilla de Looks construida: ${LOOKS.length} tarjetas.`);
+  // Da tiempo a que las cargas de imagen (sincronas desde el propio
+  // paquete del panel) terminen antes de resumir.
+  setTimeout(() => {
+    if (thumbsFailed > 0) {
+      log(`${thumbsOk} miniaturas cargaron, ${thumbsFailed} fallaron -- revisa que panel/assets/looks este junto a index.html.`, "warn");
+    }
+  }, 500);
 }
 
 function selectLook(lookIndex) {
@@ -449,6 +476,10 @@ btnDiagnose.addEventListener("click", async () => {
   log("— fin del diagnostico —");
 });
 
-buildLookGrid();
+try {
+  buildLookGrid();
+} catch (e) {
+  log(`buildLookGrid() fallo: ${e}`, "error");
+}
 renderIntensityUi();
 log("Panel cargado. Selecciona un Look o ajusta Intensity para aplicarlos al clip seleccionado.");

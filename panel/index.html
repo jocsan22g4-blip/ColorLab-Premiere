@@ -29,15 +29,24 @@
     margin: 10px 0 6px 0;
   }
 
-  /* --- Navegador de Looks --- */
+  /* --- Navegador de Looks ---
+     Deliberadamente SIN "display:grid" ni "aspect-ratio": en este runtime
+     de UXP ya vimos que no se puede asumir soporte moderno de CSS (el
+     <input type="range"> nativo se trababa al arrastrarlo -- ver main.js).
+     Flexbox + el truco clasico de "padding-top" para una caja 16:9, y la
+     miniatura como background-image (no <img>, para no depender de como
+     este runtime calcula el tamano intrinseco de una imagen) son soporte
+     universal, incluso en motores viejos. */
   #lookGrid {
-    display: grid;
-    grid-template-columns: repeat(3, 1fr);
-    gap: 6px;
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: space-between;
   }
   .look-card {
     position: relative;
-    min-width: 0; /* si no, el ancho intrinseco de <img> fuerza la columna del grid a desbordar */
+    display: block;
+    width: 31.5%;
+    margin-bottom: 8px;
     border: 2px solid transparent;
     border-radius: 6px;
     overflow: hidden;
@@ -46,11 +55,13 @@
     padding: 0;
     text-align: left;
   }
-  .look-card img {
-    display: block;
+  .look-card .look-thumb {
     width: 100%;
-    aspect-ratio: 16 / 9;
-    object-fit: cover;
+    padding-top: 56.25%; /* caja 16:9 sin usar aspect-ratio */
+    position: relative;
+    background-color: #111;
+    background-size: cover;
+    background-position: center;
     pointer-events: none;
   }
   .look-card .look-name {
