@@ -442,6 +442,24 @@ const SECTIONS = [
   },
 ];
 
+// EL COLOR ESTA APAGADO, Y ES UN FALLO DE PREMIERE, NO DE ESTE PANEL.
+//
+// Confirmado en Premiere 26.5.2 (21 oct 2026): escribir un parametro de
+// color desde UXP pierde el canal AZUL. #FFFFFF aparece como amarillo y el
+// celeste #78C8FF como verde, aunque el valor enviado es correcto. Es un
+// error de Adobe ya reportado (versiones 26.0.2 a 26.3 como minimo) y no
+// hay forma de esquivarlo desde aqui: ni la lectura (devuelve el valor
+// "pretendido") lo delata, solo se ve en pantalla.
+//
+// Un control que pinta colores equivocados es peor que no tenerlo, asi que
+// se quita del panel y el color de Bloom se elige en Controles de efectos,
+// donde funciona. Todo el codigo del color sigue aqui: cuando Adobe lo
+// corrija, poner esta constante a true y comprobar con un blanco.
+const COLOR_WRITE_ENABLED = false;
+if (!COLOR_WRITE_ENABLED) {
+  for (const sec of SECTIONS) sec.controls = sec.controls.filter((c) => c.kind !== "color");
+}
+
 /// Todos los controles de las secciones, planos, incluyendo el "Enable" de
 /// cada una (clave `<id>.enable`).
 const ALL_CONTROLS = [];
