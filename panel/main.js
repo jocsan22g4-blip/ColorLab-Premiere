@@ -91,17 +91,17 @@ const LOOKS = [
 // para que quepan como fichas.
 const CAMERAS = [
   "None",
-  "Sony S-Log3",
-  "Canon C-Log3",
-  "Panasonic V-Log",
-  "Cinelike D",
+  "Apple Log",
+  "Apple Log 2",
   "Blackmagic Gen 5",
-  "RED Log3G10",
+  "Canon C-Log3",
+  "Cinelike D",
   "DJI D-Log M",
   "Mavic 3 D-Log",
   "Mavic Pro D-Log",
-  "Apple Log",
-  "Apple Log 2",
+  "Panasonic V-Log",
+  "RED Log3G10",
+  "Sony S-Log3",
 ];
 let selectedCameraIndex = 0; // 0 = None
 
