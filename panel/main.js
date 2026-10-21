@@ -1122,6 +1122,64 @@ async function readParamValue(param, tickTimes) {
   return null;
 }
 
+/// Lo que devolvio el runtime, como texto corto, para el log.
+function shapeOf(raw) {
+  let json;
+  try { json = JSON.stringify(raw); } catch { json = String(raw); }
+  return `${raw === null ? "null" : typeof raw}: ${json}`;
+}
+
+const loggedBoolShapes = new Set();
+
+/**
+ * Lee una casilla (Enable, View...). Devuelve true / false, o null si no se
+ * pudo saber.
+ *
+ * POR QUE NO VA POR readParamValue.
+ *
+ * readParamValue solo entiende numeros y booleanos y, ante cualquier otra
+ * cosa, devuelve null: "no se pudo leer", y el panel se queda con lo que
+ * tenia. Para una casilla eso es un fallo: al pasar de un clip con Split
+ * Tone ENCENDIDO a otro con el efecto aplicado pero Split Tone APAGADO, el
+ * panel seguia mostrandolo encendido (reportado el 21 oct en Premiere real).
+ * Si Premiere devuelve para "casilla apagada" algo que no es un booleano ni
+ * un numero (nulo, vacio, texto), el valor se perdia justo en el caso que
+ * mas importa.
+ *
+ * Una lectura que RESUELVE pero sin valor se interpreta como apagada; una
+ * que LANZA una excepcion sigue siendo "no se sabe". La forma exacta que
+ * devuelve Premiere queda en el log, una vez por forma distinta.
+ */
+async function readBoolValue(param, tickTimes) {
+  if (!param || typeof param.getValueAtTime !== "function") return null;
+  const candidatos = cachedTickTime ? [cachedTickTime] : tickTimes;
+  for (const cand of candidatos) {
+    let raw;
+    try {
+      raw = await param.getValueAtTime(cand.t);
+    } catch {
+      continue;
+    }
+    if (typeof raw === "boolean") return raw;
+    const n = asNumber(raw);
+    if (n !== null) return n >= 0.5;
+
+    let verdict = null;
+    if (raw === null || raw === undefined) verdict = false;
+    else if (typeof raw === "string") {
+      if (/^\s*(true|1|on|yes)\s*$/i.test(raw)) verdict = true;
+      else if (/^\s*(false|0|off|no)?\s*$/i.test(raw)) verdict = false;
+    }
+    const shape = shapeOf(raw);
+    if (!loggedBoolShapes.has(shape)) {
+      loggedBoolShapes.add(shape);
+      log(`Casilla leida como ${shape} -> se interpreta como ${verdict === null ? "desconocida" : (verdict ? "encendida" : "apagada")}.`, "warn");
+    }
+    return verdict;
+  }
+  return null;
+}
+
 /** Lee del clip todo lo que el panel controla. */
 async function readParamsFromClip(target, sequence) {
   const { live } = target;
@@ -1150,9 +1208,14 @@ async function readParamsFromClip(target, sequence) {
   await Promise.all(ALL_CONTROLS.map(async (c) => {
     const p = map[c.key];
     if (!p) return;
+    if (c.kind === "bool") {
+      const b = await readBoolValue(p, tickTimes);
+      if (b !== null) out[c.key] = b;
+      return;
+    }
     const v = await readParamValue(p, tickTimes);
     if (v === null) return;
-    out[c.key] = c.kind === "bool" ? v >= 0.5 : c.kind === "choice" ? Math.round(v) : v;
+    out[c.key] = c.kind === "choice" ? Math.round(v) : v;
   }));
 
   // El primer sondeo ya dejo escrito en el log todo lo que hizo falta
@@ -1352,6 +1415,27 @@ btnDiagnose.addEventListener("click", async () => {
         try { names.push(`${i}:${target.live.getParam(i)?.displayName ?? "?"}`); } catch { names.push(`${i}:?`); }
       }
       log(`Orden en Premiere -> ${names.join(" | ")}`);
+
+      // Lo que Premiere DEVUELVE para cada parametro, tal cual. Es lo que hay
+      // que mirar cuando el panel y Controles de efectos no coinciden.
+      try {
+        const sel = await getSelectedVideoClip({ silent: true });
+        const tt = await buildTickTimes(sel.ok ? sel.sequence : null);
+        const t = (cachedTickTime || tt[0])?.t;
+        if (t) {
+          const lines = [];
+          for (let i = 0; i < count; i++) {
+            let p; try { p = target.live.getParam(i); } catch { continue; }
+            if (!p?.displayName) continue;
+            let txt;
+            try { txt = shapeOf(await p.getValueAtTime(t)); } catch (e) { txt = `ERROR ${e}`; }
+            lines.push(`${i}:${p.displayName}=${txt}`);
+          }
+          log(`Valores crudos -> ${lines.join(" | ")}`);
+        }
+      } catch (e) {
+        log(`Volcado de valores fallo: ${e}`, "warn");
+      }
     }
   } catch (e) {
     log(`Diagnostico de parametros fallo: ${e}`, "warn");
