@@ -29,9 +29,26 @@
     color: inherit;
     text-align: inherit;
   }
+  html, body { height: 100%; }
+  /* EL DESPLAZAMIENTO VA EN #app, NO EN EL BODY.
+     Con las secciones desplegadas el contenido supera la altura del panel y
+     la rueda del raton no hacia nada: este runtime de UXP no desplaza el
+     <body>. Un contenedor absoluto que llena el panel con overflow-y: auto
+     si desplaza. (22 oct, hallazgo en Premiere real.) */
+  #app {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    overflow-y: auto;
+    overflow-x: hidden;
+    padding: 16px;
+  }
   body {
     margin: 0;
-    padding: 16px;
+    padding: 0;
+    overflow: hidden;
     font-family: "Inter", -apple-system, "Segoe UI", "Helvetica Neue", Arial, sans-serif;
     font-size: 12px;
     /* Escala de grises (22 oct): el degradado azul se confundia con el
@@ -366,6 +383,7 @@
 </style>
 </head>
 <body>
+  <div id="app">
   <div class="brand">
     <img src="./assets/brand/colorlab-mark.png" alt="" />
     <span class="wordmark"><b>Color</b><span>Lab</span></span>
@@ -403,6 +421,8 @@
       <div id="log"></div>
     </details>
   </section>
+
+  </div>
 
   <script src="./main.js"></script>
 </body>

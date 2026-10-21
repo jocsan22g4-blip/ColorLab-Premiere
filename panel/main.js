@@ -1180,6 +1180,33 @@ function anySliderDragging() {
   return anyControlDragging();
 }
 
+/// Devuelve el panel a los valores por defecto del efecto. true si algo cambio.
+function resetPanelToDefaults() {
+  let changed = false;
+
+  if (selectedLookIndex !== 1) {
+    selectedLookIndex = 1;
+    renderLookStripSelection();
+    renderLookReadout();
+    changed = true;
+  }
+  if (Math.abs(intensitySlider.value - kIntensityDefaultUi) > 0.05) {
+    intensitySlider.value = kIntensityDefaultUi;
+    changed = true;
+  }
+  for (const c of ALL_CONTROLS) {
+    const ui = controlUi[c.key];
+    if (!ui) continue;
+    if (c.kind === "bool" || c.kind === "choice") {
+      if (ui.value !== c.def) { ui.value = c.def; changed = true; }
+    } else if (Math.abs(ui.value - c.def) > 0.5 * Math.pow(10, -c.dec)) {
+      ui.value = c.def;
+      changed = true;
+    }
+  }
+  return changed;
+}
+
 /**
  * Trae al panel los valores del clip seleccionado.
  *
@@ -1188,8 +1215,8 @@ function anySliderDragging() {
  * un evento documentado de cambio de seleccion en la API de UXP.
  *
  * No inserta el efecto (insertIfMissing: false) y no escribe nada: si el
- * clip no tiene Color Lab, el panel se queda como esta, que son los
- * valores que se aplicarian al pulsar Aplicar.
+ * clip no tiene Color Lab, el panel vuelve a los valores por defecto
+ * (resetPanelToDefaults), que son los que se volcarian al insertarlo.
  */
 async function syncFromClip() {
   if (syncing || applying || anySliderDragging()) return;
@@ -1202,7 +1229,20 @@ async function syncFromClip() {
     if (!selected.ok) return;
 
     const target = await resolveTarget({ silent: true, insertIfMissing: false });
-    if (!target.ok) return;
+    if (!target.ok) {
+      // Un clip SIN Color Lab: el panel vuelve a los valores por defecto.
+      // Antes se quedaba como estaba, y al saltar de un clip con Bloom
+      // activado a otro sin el efecto, el panel seguia mostrando Bloom
+      // encendido cuando Controles de efectos no mostraba nada. No se pierde
+      // nada: tocar cualquier control inserta el efecto con los valores del
+      // panel, asi que el panel nunca guarda un estado "a medias".
+      if (target.reason === "el clip no tiene Color Lab") {
+        if (applying || anySliderDragging()) return;
+        if (Date.now() - lastWriteAt < SYNC_COOLDOWN_MS) return;
+        if (resetPanelToDefaults()) setStatus("Este clip no tiene Color Lab · valores por defecto", "info");
+      }
+      return;
+    }
 
     const values = await readParamsFromClip(target, selected.sequence);
 
