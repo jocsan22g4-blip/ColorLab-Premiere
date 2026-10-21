@@ -1,38 +1,47 @@
 /*
- * Color Lab para Premiere — prototipo minimo de viabilidad (Etapa 1).
+ * Color Lab para Premiere — panel UXP, Etapa 2.
  *
- * Alcance deliberadamente reducido (ver informe "Color Lab para Premiere Pro
- * - informe tecnico, Fase 1", seccion 9): sin identidad visual final, sin
- * miniaturas, sin perfiles de camara, sin Windows, sin Hybrid. Solo Look e
- * Intensity, sobre el efecto ya compilado en ColorLab-3/ae (COLORLAB_BUILD_AE=ON).
+ * Construye sobre el prototipo de la Etapa 1 (ver TESTING.md, seccion
+ * "Resultado"), ya validado en vivo contra Premiere 26.5.2: matchName
+ * "AE.<...>", insercion con createAppendComponentAction dentro de
+ * lockedAccess + executeTransaction, Look/Intensity con createSetValueAction,
+ * el popup "Look" base-1 en AE pero base-0 en el ComponentParam de Premiere,
+ * UXP sin honrar valores HTML por defecto, y un <input type="range"> nativo
+ * que se traba al arrastrar en este runtime.
  *
- * Este panel responde, en orden, las 6 preguntas de validacion del informe:
- *   1. Que lista VideoFilterFactory.getMatchNames()? (boton Diagnosticar)
- *   2. createComponent + createAppendComponentAction, dentro de
- *      project.lockedAccess + project.executeTransaction, deja el efecto
- *      en el clip y visible en Controles de efectos? (boton Aplicar)
- *   3. Se pueden escribir Look e Intensity con createSetValueAction? Cambia
- *      el frame y funciona el deshacer? (boton Aplicar + verificacion manual
- *      en el monitor de Programa y con Cmd/Ctrl+Z)
- *   4. Que hace el panel sin proyecto, sin secuencia, sin seleccion o con un
- *      clip de audio seleccionado? (ambos botones, manejo de errores abajo)
- *   5. Coincide el frame de Premiere con el de Resolve para el mismo Look y
- *      la misma entrada? -> verificacion manual, fuera del alcance del codigo.
- *   6. Con Bloom activado en 4K, cuanto tarda un frame? -> verificacion manual
- *      en Premiere (Effect Controls -> activar Bloom -> medir reproduccion/export).
- *
- * Los 15 nombres de Look vienen de looks/looks.manifest en ColorLab-3 (orden
- * congelado, 1-indexado porque los popups de After Effects son base 1).
+ * Novedades de la Etapa 2:
+ *   - Navegador de Looks con miniaturas (panel/assets/looks/look_XX.jpg,
+ *     generadas a partir de los .cube de ColorLab-3/looks sobre una imagen
+ *     de referencia sintetica -- no hay footage de muestra en el repo).
+ *   - Deslizador de Intensity construido a mano (HTML/CSS + Pointer Events),
+ *     sin <input type="range">.
+ *   - Reaplicar Look/Intensity ya NO apila una instancia nueva del efecto
+ *     por cada clic: si el clip seleccionado ya tiene Color Lab en su
+ *     cadena, se reutiliza (se detecta por Component.getMatchName()) y solo
+ *     se actualizan sus parametros.
  */
 
 const premierepro = require("premierepro");
 
 // Debe coincidir exactamente, en el mismo orden, con looks/looks.manifest
-// de ColorLab-3. El indice que se envia al parametro "Look" es 1-based.
-const LOOK_NAMES = [
-  "Nature", "Amber", "Sage", "Ember", "Emerald",
-  "Haze", "Velvet", "Frost", "Film", "Silver",
-  "Astral", "Faded", "Aura", "Retro", "Black & White",
+// de ColorLab-3. El indice que se envia al parametro "Look" es 1-based
+// (como el popup de After Effects); ids del manifiesto: look_01..look_15.
+const LOOKS = [
+  { id: "look_01", name: "Nature" },
+  { id: "look_02", name: "Amber" },
+  { id: "look_03", name: "Sage" },
+  { id: "look_04", name: "Ember" },
+  { id: "look_05", name: "Emerald" },
+  { id: "look_06", name: "Haze" },
+  { id: "look_07", name: "Velvet" },
+  { id: "look_08", name: "Frost" },
+  { id: "look_09", name: "Film" },
+  { id: "look_10", name: "Silver" },
+  { id: "look_11", name: "Astral" },
+  { id: "look_12", name: "Faded" },
+  { id: "look_13", name: "Aura" },
+  { id: "look_14", name: "Retro" },
+  { id: "look_15", name: "Black & White" },
 ];
 
 const INTENSITY_MIN = 0.0;
@@ -40,10 +49,19 @@ const INTENSITY_MAX = 100.0;
 const kIntensityDefaultUi = 100.0; // igual a kIntensityDefault en ae/ColorLabAE.h
 
 const logEl = document.getElementById("log");
-const lookSelect = document.getElementById("lookSelect");
-const intensityInput = document.getElementById("intensity");
+const statusEl = document.getElementById("status");
+const lookGridEl = document.getElementById("lookGrid");
 const btnDiagnose = document.getElementById("btnDiagnose");
 const btnApply = document.getElementById("btnApply");
+
+const sliderEl = document.getElementById("intensitySlider");
+const sliderFillEl = document.getElementById("intensityFill");
+const sliderThumbEl = document.getElementById("intensityThumb");
+const intensityValueEl = document.getElementById("intensityValue");
+
+let selectedLookIndex = 1; // 1-based
+let intensityValue = kIntensityDefaultUi;
+let cachedMatchName = null; // se resuelve una vez y se reutiliza
 
 function log(msg, level = "info") {
   const stamp = new Date().toLocaleTimeString();
@@ -58,94 +76,179 @@ function log(msg, level = "info") {
   logEl.scrollTop = logEl.scrollHeight;
 }
 
-function populateLookDropdown() {
-  lookSelect.innerHTML = "";
-  LOOK_NAMES.forEach((name, i) => {
-    const opt = document.createElement("option");
-    opt.value = String(i + 1); // 1-based, igual que el popup de AE
-    opt.textContent = `${i + 1}. ${name}`;
-    lookSelect.appendChild(opt);
+function setStatus(msg, level = "info") {
+  statusEl.textContent = msg;
+  statusEl.className = level === "error" ? "error" : level === "warn" ? "warn" : level === "ok" ? "ok" : "";
+}
+
+/* ---------------- Navegador de Looks ---------------- */
+
+function buildLookGrid() {
+  lookGridEl.innerHTML = "";
+  LOOKS.forEach((look, i) => {
+    const lookIndex = i + 1; // 1-based, igual que el popup de AE
+    const card = document.createElement("button");
+    card.type = "button";
+    card.className = "look-card";
+    card.dataset.lookIndex = String(lookIndex);
+    if (lookIndex === selectedLookIndex) card.classList.add("selected");
+
+    const img = document.createElement("img");
+    img.src = `./assets/looks/${look.id}.jpg`;
+    img.alt = look.name;
+    img.loading = "lazy";
+
+    const label = document.createElement("span");
+    label.className = "look-name";
+    label.textContent = look.name;
+
+    card.appendChild(img);
+    card.appendChild(label);
+    card.addEventListener("click", () => selectLook(lookIndex));
+    lookGridEl.appendChild(card);
   });
-  // No asumir que el runtime de UXP auto-selecciona la primera opcion como
-  // lo hace un navegador normal -- se fuerza explicitamente. Sin esto se vio
-  // lookSelect.value devolver undefined con el <select> recien poblado.
-  lookSelect.selectedIndex = 0;
 }
 
-/**
- * UXP tampoco honra el atributo HTML "value" de los controles al cargar la
- * pagina (se vio quedar en 0, el minimo, en vez del 100 escrito en el HTML)
- * -- mismo patron que el <select>. Se fuerza por JS. Ademas se cambio de
- * <input type="range"> a type="number": el slider se trababa en 0 al
- * arrastrarlo en el runtime de UXP (reportado probando en vivo); un campo
- * numerico con flechas es mas predecible.
- */
-function resetIntensityToDefault() {
-  intensityInput.value = String(kIntensityDefaultUi);
+function selectLook(lookIndex) {
+  if (lookIndex === selectedLookIndex) return;
+  selectedLookIndex = lookIndex;
+  [...lookGridEl.children].forEach((card) => {
+    card.classList.toggle("selected", Number(card.dataset.lookIndex) === lookIndex);
+  });
+  applyCurrent();
 }
 
+/* ---------------- Deslizador de Intensity ---------------- */
+
+function renderIntensityUi() {
+  const pct = ((intensityValue - INTENSITY_MIN) / (INTENSITY_MAX - INTENSITY_MIN)) * 100;
+  sliderFillEl.style.width = `${pct}%`;
+  sliderThumbEl.style.left = `${pct}%`;
+  intensityValueEl.textContent = intensityValue.toFixed(1);
+}
+
+function setIntensityFromClientX(clientX) {
+  const rect = sliderEl.getBoundingClientRect();
+  let pct = (clientX - rect.left) / rect.width;
+  pct = Math.max(0, Math.min(1, pct));
+  intensityValue = INTENSITY_MIN + pct * (INTENSITY_MAX - INTENSITY_MIN);
+  renderIntensityUi();
+}
+
+let draggingSlider = false;
+
+sliderEl.addEventListener("pointerdown", (ev) => {
+  draggingSlider = true;
+  sliderEl.classList.add("dragging");
+  sliderEl.setPointerCapture(ev.pointerId);
+  setIntensityFromClientX(ev.clientX);
+  ev.preventDefault();
+});
+sliderEl.addEventListener("pointermove", (ev) => {
+  if (!draggingSlider) return;
+  setIntensityFromClientX(ev.clientX);
+});
+function finishSliderDrag(ev) {
+  if (!draggingSlider) return;
+  draggingSlider = false;
+  sliderEl.classList.remove("dragging");
+  try { sliderEl.releasePointerCapture(ev.pointerId); } catch {}
+  // Solo se llama a Premiere al soltar -- aplicar en cada pixel arrastrado
+  // apilaria una llamada de transaccion por frame de movimiento.
+  applyCurrent();
+}
+sliderEl.addEventListener("pointerup", finishSliderDrag);
+sliderEl.addEventListener("pointercancel", finishSliderDrag);
+
+// Click en el numero para escribirlo a mano.
+intensityValueEl.addEventListener("click", () => {
+  intensityValueEl.contentEditable = "true";
+  intensityValueEl.focus();
+  document.execCommand && document.execCommand("selectAll", false, null);
+});
+function commitIntensityEdit() {
+  intensityValueEl.contentEditable = "false";
+  let v = Number(String(intensityValueEl.textContent).replace(",", "."));
+  if (!Number.isFinite(v)) v = intensityValue;
+  v = Math.max(INTENSITY_MIN, Math.min(INTENSITY_MAX, v));
+  intensityValue = v;
+  renderIntensityUi();
+  applyCurrent();
+}
+intensityValueEl.addEventListener("blur", commitIntensityEdit);
+intensityValueEl.addEventListener("keydown", (ev) => {
+  if (ev.key === "Enter") {
+    ev.preventDefault();
+    intensityValueEl.blur();
+  } else if (ev.key === "Escape") {
+    ev.preventDefault();
+    renderIntensityUi();
+    intensityValueEl.contentEditable = "false";
+    intensityValueEl.blur();
+  }
+});
+
+/* ---------------- Logica de Premiere (de la Etapa 1) ---------------- */
+
 /**
- * Centraliza las 4 comprobaciones de la pregunta 4 del informe: sin
- * proyecto, sin secuencia, sin seleccion, o un item que no es de video.
+ * Centraliza las 4 comprobaciones de casos limite: sin proyecto, sin
+ * secuencia, sin seleccion, o un item que no es de video.
  * Devuelve { ok: true, project, sequence, trackItem } o { ok: false }.
  */
-async function getSelectedVideoClip() {
+async function getSelectedVideoClip({ silent = false } = {}) {
+  const warn = (msg) => { if (!silent) log(msg, "warn"); };
+  const err = (msg) => { if (!silent) log(msg, "error"); };
+
   let project;
   try {
     project = await premierepro.Project.getActiveProject();
   } catch (e) {
-    log(`No se pudo leer Project.getActiveProject(): ${e}`, "error");
-    return { ok: false };
+    err(`No se pudo leer Project.getActiveProject(): ${e}`);
+    return { ok: false, reason: "sin proyecto" };
   }
   if (!project) {
-    log("No hay ningun proyecto abierto en Premiere.", "warn");
-    return { ok: false };
+    warn("No hay ningun proyecto abierto en Premiere.");
+    return { ok: false, reason: "sin proyecto" };
   }
 
   let sequence;
   try {
     sequence = await project.getActiveSequence();
   } catch (e) {
-    log(`No se pudo leer project.getActiveSequence(): ${e}`, "error");
-    return { ok: false };
+    err(`No se pudo leer project.getActiveSequence(): ${e}`);
+    return { ok: false, reason: "sin secuencia" };
   }
   if (!sequence) {
-    log("No hay ninguna secuencia activa abierta en el monitor de Programa.", "warn");
-    return { ok: false };
+    warn("No hay ninguna secuencia activa abierta en el monitor de Programa.");
+    return { ok: false, reason: "sin secuencia" };
   }
 
   let selection;
   try {
     selection = await sequence.getSelection();
   } catch (e) {
-    log(`No se pudo leer sequence.getSelection(): ${e}`, "error");
-    return { ok: false };
+    err(`No se pudo leer sequence.getSelection(): ${e}`);
+    return { ok: false, reason: "sin seleccion" };
   }
 
   const items = (await selection?.getTrackItems?.()) ?? [];
   if (!items.length) {
-    log("No hay ningun clip seleccionado en la linea de tiempo.", "warn");
-    return { ok: false };
+    warn("No hay ningun clip seleccionado en la linea de tiempo.");
+    return { ok: false, reason: "sin seleccion" };
   }
-  if (items.length > 1) {
-    log(`Hay ${items.length} clips seleccionados; el prototipo solo usa el primero.`, "warn");
+  if (items.length > 1 && !silent) {
+    log(`Hay ${items.length} clips seleccionados; se usa solo el primero.`, "warn");
   }
 
   const trackItem = items[0];
 
-  // No hay un metodo documentado "isVideo"; se detecta por duck-typing:
-  // un item de audio no deberia exponer getComponentChain() con una cadena
-  // de video util. Si falla, se trata como "no es un clip de video".
+  // No hay un metodo documentado "isVideo"; se detecta por duck-typing.
+  // Un AudioClipTrackItem tambien expone getComponentChain(), asi que el
+  // caso real se distingue por el error al insertar (ver mas abajo), no
+  // solo por este chequeo.
   if (typeof trackItem.getComponentChain !== "function") {
-    log("El item seleccionado no tiene getComponentChain() — probablemente no es un clip de video.", "warn");
-    return { ok: false };
-  }
-
-  try {
-    const name = await trackItem.getName();
-    log(`Clip seleccionado: "${name}".`);
-  } catch {
-    // no critico, seguimos igual
+    warn("El item seleccionado no tiene getComponentChain() — probablemente no es un clip de video.");
+    return { ok: false, reason: "no es video" };
   }
 
   return { ok: true, project, sequence, trackItem };
@@ -153,9 +256,8 @@ async function getSelectedVideoClip() {
 
 /** Busca entre los matchNames disponibles el del efecto Color Lab compilado. */
 async function findColorLabMatchName() {
+  if (cachedMatchName) return cachedMatchName;
   const names = await premierepro.VideoFilterFactory.getMatchNames();
-  log(`VideoFilterFactory.getMatchNames() devolvio ${names.length} nombres.`);
-
   const candidates = names.filter((n) => /colorlab/i.test(n));
   if (candidates.length === 0) {
     log("Ningun matchName contiene 'colorlab'. Lista completa en consola (DevTools).", "error");
@@ -165,146 +267,188 @@ async function findColorLabMatchName() {
   if (candidates.length > 1) {
     log(`Varios matchNames coinciden: ${candidates.join(", ")}. Se usa el primero.`, "warn");
   }
-  log(`matchName encontrado: "${candidates[0]}"`);
-  return candidates[0];
+  cachedMatchName = candidates[0];
+  log(`matchName encontrado: "${cachedMatchName}"`);
+  return cachedMatchName;
 }
+
+/**
+ * Busca en la cadena de componentes del clip uno cuyo matchName coincida
+ * (el efecto Color Lab ya aplicado antes). Devuelve su indice o -1.
+ */
+function findExistingComponentIndex(chain, matchName) {
+  let count;
+  try {
+    count = chain.getComponentCount();
+  } catch {
+    return -1;
+  }
+  for (let i = 0; i < count; i++) {
+    let comp;
+    try {
+      comp = chain.getComponentAtIndex(i);
+    } catch {
+      continue;
+    }
+    try {
+      const mn = typeof comp?.getMatchName === "function" ? comp.getMatchName() : null;
+      if (mn === matchName) return i;
+    } catch {
+      // ignorar y seguir buscando
+    }
+  }
+  return -1;
+}
+
+let applying = false;
+
+/** Aplica (o actualiza) Look/Intensity en el clip actualmente seleccionado. */
+async function applyCurrent() {
+  if (applying) return; // evita solapar transacciones si el usuario encadena clics/arrastres
+  applying = true;
+  btnApply.disabled = true;
+  try {
+    const selected = await getSelectedVideoClip();
+    if (!selected.ok) {
+      setStatus("Selecciona un clip de video para aplicar el Look.", "warn");
+      return;
+    }
+    const { project, trackItem } = selected;
+
+    const matchName = await findColorLabMatchName();
+    if (!matchName) {
+      setStatus("No se encontro el efecto Color Lab instalado en Premiere.", "error");
+      return;
+    }
+
+    let chain;
+    try {
+      chain = await trackItem.getComponentChain();
+    } catch (e) {
+      log(`Fallo obteniendo la cadena de video: ${e}`, "error");
+      setStatus("No se pudo leer la cadena de video del clip.", "error");
+      return;
+    }
+    if (!chain) {
+      setStatus("getComponentChain() devolvio vacio.", "error");
+      return;
+    }
+
+    let targetIndex = findExistingComponentIndex(chain, matchName);
+
+    // Si no esta aplicado todavia, insertarlo (transaccion 1). El
+    // componente recien creado por VideoFilterFactory no expone
+    // getParamCount/getParam hasta que se reinserta y se relee desde la
+    // cadena (descubierto en la Etapa 1).
+    if (targetIndex === -1) {
+      let component, countBefore, appended = false;
+      try {
+        component = await premierepro.VideoFilterFactory.createComponent(matchName);
+        countBefore = chain.getComponentCount();
+      } catch (e) {
+        log(`Fallo creando el componente: ${e}`, "error");
+        setStatus("No se pudo crear el componente del efecto.", "error");
+        return;
+      }
+      try {
+        project.lockedAccess(() => {
+          appended = project.executeTransaction((compoundAction) => {
+            compoundAction.addAction(chain.createAppendComponentAction(component));
+          }, "Color Lab: insertar efecto");
+        });
+      } catch (e) {
+        const msg = String(e);
+        if (/invalid parameter/i.test(msg)) {
+          log(`No se pudo insertar el efecto (Invalid parameter). El item seleccionado probablemente no tiene una cadena de video valida para un filtro de video (p. ej. es en realidad un clip de audio). ${msg}`, "error");
+          setStatus("El clip seleccionado no admite efectos de video.", "error");
+        } else {
+          log(`Fallo insertando el efecto en la cadena: ${msg}`, "error");
+          setStatus("Fallo insertando el efecto.", "error");
+        }
+        return;
+      }
+      if (!appended) {
+        setStatus("executeTransaction() de insercion devolvio false.", "error");
+        return;
+      }
+      targetIndex = countBefore;
+    }
+
+    let live;
+    try {
+      live = chain.getComponentAtIndex(targetIndex);
+    } catch (e) {
+      log(`No se pudo releer el componente (indice ${targetIndex}): ${e}`, "error");
+      setStatus("No se pudo releer el efecto insertado.", "error");
+      return;
+    }
+    if (typeof live?.getParamCount !== "function") {
+      log("El componente insertado no expone getParamCount().", "error");
+      console.log("componente insertado:", live);
+      setStatus("El efecto quedo aplicado con valores por defecto; no se pudo escribir Look/Intensity.", "error");
+      return;
+    }
+
+    let ok = false;
+    try {
+      project.lockedAccess(() => {
+        ok = project.executeTransaction((compoundAction) => {
+          const count = live.getParamCount();
+          let lookParam = null;
+          let intensityParam = null;
+          for (let i = 0; i < count; i++) {
+            const p = live.getParam(i);
+            if (p?.displayName === "Look") lookParam = p;
+            if (p?.displayName === "Intensity") intensityParam = p;
+          }
+
+          if (lookParam) {
+            // El popup "Look" es base-1 en After Effects (PF_ADD_POPUP),
+            // pero Premiere interpreta el valor del ComponentParam como
+            // indice base-0 -- se resta 1 (hallazgo de la Etapa 1).
+            const kf = lookParam.createKeyframe(selectedLookIndex - 1);
+            compoundAction.addAction(lookParam.createSetValueAction(kf, true));
+          } else {
+            log(`No se encontro un parametro llamado "Look" entre ${count} parametros.`, "warn");
+          }
+
+          if (intensityParam) {
+            const kf = intensityParam.createKeyframe(intensityValue);
+            compoundAction.addAction(intensityParam.createSetValueAction(kf, true));
+          } else {
+            log(`No se encontro un parametro llamado "Intensity" entre ${count} parametros.`, "warn");
+          }
+        }, "Color Lab: aplicar look");
+      });
+    } catch (e) {
+      log(`La transaccion de parametros fallo: ${e}`, "error");
+      setStatus("Fallo aplicando Look/Intensity.", "error");
+      return;
+    }
+
+    if (ok) {
+      const name = LOOKS[selectedLookIndex - 1]?.name ?? selectedLookIndex;
+      setStatus(`${name} · Intensity ${intensityValue.toFixed(1)}`, "ok");
+      log(`Aplicado Look=${selectedLookIndex} (${name}), Intensity=${intensityValue.toFixed(1)}.`);
+    } else {
+      setStatus("executeTransaction() de parametros devolvio false.", "error");
+    }
+  } finally {
+    applying = false;
+    btnApply.disabled = false;
+  }
+}
+
+btnApply.addEventListener("click", () => applyCurrent());
 
 btnDiagnose.addEventListener("click", async () => {
   log("— Diagnostico —");
+  cachedMatchName = null; // forzar relectura por si se reinstalo el efecto
   await findColorLabMatchName();
   await getSelectedVideoClip();
   log("— fin del diagnostico —");
 });
 
-btnApply.addEventListener("click", async () => {
-  log("— Aplicar —");
-
-  const selected = await getSelectedVideoClip();
-  if (!selected.ok) {
-    log("Cancelado: no hay un clip de video valido seleccionado.", "error");
-    return;
-  }
-  const { project, trackItem } = selected;
-
-  const matchName = await findColorLabMatchName();
-  if (!matchName) {
-    log("Cancelado: no se encontro el efecto Color Lab instalado en Premiere.", "error");
-    return;
-  }
-
-  let lookIndex = Number(lookSelect.value);
-  if (!Number.isInteger(lookIndex) || lookIndex < 1 || lookIndex > LOOK_NAMES.length) {
-    log(`lookSelect.value es invalido ("${lookSelect.value}"); usando Look=1 (Nature) por defecto. Revisa el desplegable -- puede que no haya quedado una opcion seleccionada.`, "warn");
-    lookIndex = 1;
-  }
-  let intensityValue = Number(intensityInput.value);
-  if (!Number.isFinite(intensityValue) || intensityValue < INTENSITY_MIN || intensityValue > INTENSITY_MAX) {
-    log(`intensityInput.value es invalido ("${intensityInput.value}"); usando ${kIntensityDefaultUi.toFixed(1)} por defecto.`, "warn");
-    intensityValue = kIntensityDefaultUi;
-  }
-
-  let component, chain, countBefore;
-  try {
-    component = await premierepro.VideoFilterFactory.createComponent(matchName);
-    chain = await trackItem.getComponentChain();
-    countBefore = chain.getComponentCount();
-  } catch (e) {
-    log(`Fallo preparando el componente o la cadena de video: ${e}`, "error");
-    return;
-  }
-  if (!component || !chain) {
-    log("createComponent() o getComponentChain() devolvieron vacio.", "error");
-    return;
-  }
-
-  // Paso 1: solo insertar el efecto. El componente recien creado por
-  // VideoFilterFactory (sin insertar todavia) no expone getParamCount/getParam
-  // en esta version de Premiere -- lo descubrimos probando este prototipo.
-  // Para leer/escribir parametros hay que volver a pedir el componente desde
-  // la cadena una vez que ya esta insertado (paso 2).
-  let appended = false;
-  try {
-    project.lockedAccess(() => {
-      appended = project.executeTransaction((compoundAction) => {
-        compoundAction.addAction(chain.createAppendComponentAction(component));
-      }, "Color Lab: insertar efecto");
-    });
-  } catch (e) {
-    const msg = String(e);
-    if (/invalid parameter/i.test(msg)) {
-      log(`No se pudo insertar el efecto (Invalid parameter). Lo mas probable es que el item seleccionado no tenga una cadena de video valida para un filtro de video (p. ej. es en realidad un clip de solo audio, aunque tenga getComponentChain()). ${msg}`, "error");
-    } else {
-      log(`Fallo insertando el efecto en la cadena: ${msg}`, "error");
-    }
-    return;
-  }
-  if (!appended) {
-    log("executeTransaction() de insercion devolvio false.", "error");
-    return;
-  }
-  log("Efecto insertado en el clip.");
-
-  // Paso 2: releer el componente ya insertado y escribir Look/Intensity.
-  let live;
-  try {
-    live = chain.getComponentAtIndex(countBefore);
-  } catch (e) {
-    log(`No se pudo releer el componente insertado (indice ${countBefore}): ${e}`, "error");
-    return;
-  }
-  if (typeof live?.getParamCount !== "function") {
-    log("El componente insertado tampoco expone getParamCount() -- el efecto quedo aplicado con sus valores por defecto, pero este prototipo no puede escribir Look/Intensity todavia. Revisa en consola (DevTools) que metodos SI tiene 'live' (console.log(live)).", "error");
-    console.log("componente insertado:", live);
-    return;
-  }
-
-  let ok = false;
-  try {
-    project.lockedAccess(() => {
-      ok = project.executeTransaction((compoundAction) => {
-        const count = live.getParamCount();
-        let lookParam = null;
-        let intensityParam = null;
-        for (let i = 0; i < count; i++) {
-          const p = live.getParam(i);
-          if (p?.displayName === "Look") lookParam = p;
-          if (p?.displayName === "Intensity") intensityParam = p;
-        }
-
-        if (lookParam) {
-          // Descubierto probando en vivo: aunque el popup "Look" es base-1
-          // del lado de After Effects (PF_ADD_POPUP, igual que el OFX),
-          // Premiere interpreta el valor del ComponentParam como indice
-          // base-0 de la lista. Seleccionar "1. Nature" en este panel
-          // aplicaba "Amber" (el #2); "3. Sage" aplicaba "Ember" (el #4) --
-          // siempre +1 de desfase. Se corrige restando 1 aqui.
-          const kf = lookParam.createKeyframe(lookIndex - 1);
-          compoundAction.addAction(lookParam.createSetValueAction(kf, true));
-        } else {
-          log(`No se encontro un parametro llamado "Look" entre ${count} parametros.`, "warn");
-        }
-
-        if (intensityParam) {
-          const kf = intensityParam.createKeyframe(intensityValue);
-          compoundAction.addAction(intensityParam.createSetValueAction(kf, true));
-        } else {
-          log(`No se encontro un parametro llamado "Intensity" entre ${count} parametros.`, "warn");
-        }
-      }, "Color Lab: aplicar look");
-    });
-  } catch (e) {
-    log(`La transaccion de parametros fallo: ${e}`, "error");
-    return;
-  }
-
-  if (ok) {
-    log(`Look/Intensity aplicados. Look=${lookIndex} (${LOOK_NAMES[lookIndex - 1]}), Intensity=${intensityValue.toFixed(1)}.`);
-    log("Verifica en Controles de efectos y prueba Cmd/Ctrl+Z para confirmar el deshacer.");
-  } else {
-    log("executeTransaction() de parametros devolvio false — revisa la consola (DevTools) para mas detalle.", "error");
-  }
-});
-
-populateLookDropdown();
-resetIntensityToDefault();
-log("Panel cargado. Selecciona un clip de video en la linea de tiempo y pulsa Diagnosticar.");
+buildLookGrid();
+renderIntensityUi();
+log("Panel cargado. Selecciona un Look o ajusta Intensity para aplicarlos al clip seleccionado.");

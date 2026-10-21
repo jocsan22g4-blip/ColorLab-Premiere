@@ -119,5 +119,33 @@ Las 6 preguntas quedaron respondidas positivamente:
   filtro de video ahí.
 
 Con esto, la arquitectura (panel UXP controlando el efecto AE ya compilado)
-queda validada. Seguimos a la Etapa 2: navegador de looks con miniaturas,
-aplicar look al clip, control de intensidad con la UI definitiva.
+queda validada.
+
+## 6. Etapa 2 (interfaz real)
+
+El panel ahora tiene:
+
+- **Grilla de Looks**: 15 miniaturas (3 columnas). Clic en una la aplica de
+  inmediato al clip seleccionado — ya no hace falta el boton.
+- **Deslizador de Intensity**: arrastralo con el mouse; se aplica al
+  soltarlo (no en cada pixel, para no llenar el historial de deshacer de un
+  tiron). El numero de la derecha tambien se puede editar escribiendo
+  directamente (clic, escribe, Enter).
+- **Reutilizacion del efecto**: si el clip seleccionado ya tiene Color Lab
+  aplicado, cambiar de Look o mover Intensity actualiza esa misma instancia
+  en vez de insertar una nueva cada vez — antes del cambio, cada clic en
+  "Aplicar" del prototipo apilaba un componente de efecto adicional.
+- El boton "Aplicar al clip seleccionado" sigue disponible (re-aplica los
+  valores actuales; util si cambiaste de clip seleccionado).
+
+Que probar en esta etapa:
+
+1. Selecciona un clip, haz clic en varios Looks seguidos: en Controles de
+   efectos debe seguir habiendo **una sola** instancia de Color Lab (no una
+   por cada clic).
+2. Arrastra el deslizador de Intensity de un extremo a otro y suelta: el
+   valor debe quedar aplicado, y Cmd/Ctrl+Z debe deshacerlo en un solo paso.
+3. Prueba escribir un numero de Intensity a mano (clic en el numero, escribe
+   "35", Enter).
+4. Cambia de clip seleccionado (uno sin el efecto todavia) y aplica un Look:
+   debe insertarse ahi tambien, de forma independiente.

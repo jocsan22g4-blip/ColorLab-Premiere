@@ -2,88 +2,208 @@
 <html lang="es">
 <head>
 <meta charset="utf-8" />
-<title>Color Lab (prototipo)</title>
+<title>Color Lab</title>
 <style>
   :root { color-scheme: dark; }
+  * { box-sizing: border-box; }
   body {
     margin: 0;
-    padding: 12px;
+    padding: 10px;
     font-family: -apple-system, "Segoe UI", sans-serif;
     font-size: 12px;
     background: #2e2e2e;
     color: #e5e5e5;
   }
   h1 {
-    font-size: 13px;
+    font-size: 12.5px;
     font-weight: 600;
-    margin: 0 0 10px 0;
+    margin: 0 0 8px 0;
     color: #fafafa;
+    letter-spacing: 0.2px;
   }
-  .field { margin-bottom: 10px; }
-  label { display: block; margin-bottom: 4px; color: #bbb; }
-  select { width: 100%; box-sizing: border-box; }
-  input[type="number"] {
-    width: 90px;
-    box-sizing: border-box;
+  .section-label {
+    color: #9a9a9a;
+    font-size: 10.5px;
+    text-transform: uppercase;
+    letter-spacing: 0.4px;
+    margin: 10px 0 6px 0;
+  }
+
+  /* --- Navegador de Looks --- */
+  #lookGrid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 6px;
+  }
+  .look-card {
+    position: relative;
+    min-width: 0; /* si no, el ancho intrinseco de <img> fuerza la columna del grid a desbordar */
+    border: 2px solid transparent;
+    border-radius: 6px;
+    overflow: hidden;
+    cursor: pointer;
     background: #1c1c1c;
-    color: #e5e5e5;
-    border: 1px solid #555;
-    border-radius: 4px;
-    padding: 5px 6px;
-    font-size: 12px;
+    padding: 0;
+    text-align: left;
   }
+  .look-card img {
+    display: block;
+    width: 100%;
+    aspect-ratio: 16 / 9;
+    object-fit: cover;
+    pointer-events: none;
+  }
+  .look-card .look-name {
+    display: block;
+    font-size: 9.5px;
+    line-height: 1.5;
+    padding: 2px 4px;
+    color: #cfcfcf;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    background: #181818;
+    pointer-events: none;
+  }
+  .look-card:hover { border-color: #666; }
+  .look-card:hover .look-name { color: #fff; }
+  .look-card.selected { border-color: #2f6fed; }
+  .look-card.selected .look-name { color: #8ab4ff; background: #182238; }
+  .look-card:focus-visible { outline: 2px solid #2f6fed; outline-offset: 1px; }
+
+  /* --- Deslizador de Intensity (construido a mano: el <input type="range">
+         nativo se traba al arrastrarlo en este runtime de UXP) --- */
+  .intensity-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 6px;
+  }
+  .intensity-value {
+    font-variant-numeric: tabular-nums;
+    color: #fafafa;
+    font-size: 12px;
+    min-width: 34px;
+    text-align: right;
+    cursor: text;
+    border-bottom: 1px dashed transparent;
+  }
+  .intensity-value:hover,
+  .intensity-value:focus {
+    border-bottom-color: #666;
+    outline: none;
+  }
+  #intensitySlider {
+    position: relative;
+    height: 22px;
+    display: flex;
+    align-items: center;
+    cursor: pointer;
+    touch-action: none;
+  }
+  #intensitySlider .track {
+    position: absolute;
+    left: 0;
+    right: 0;
+    height: 4px;
+    border-radius: 2px;
+    background: #4a4a4a;
+  }
+  #intensitySlider .fill {
+    position: absolute;
+    left: 0;
+    height: 4px;
+    border-radius: 2px;
+    background: #2f6fed;
+    width: 100%;
+  }
+  #intensitySlider .thumb {
+    position: absolute;
+    width: 14px;
+    height: 14px;
+    border-radius: 50%;
+    background: #fff;
+    border: 2px solid #2f6fed;
+    left: 100%;
+    transform: translateX(-50%);
+    box-shadow: 0 1px 3px rgba(0,0,0,0.5);
+  }
+  #intensitySlider.dragging .thumb { background: #cfe0ff; }
+
   button {
     width: 100%;
-    padding: 7px 0;
+    padding: 6px 0;
     margin-top: 4px;
     border: 1px solid #555;
     border-radius: 4px;
-    background: #444;
-    color: #fff;
+    background: #3a3a3a;
+    color: #ddd;
     cursor: pointer;
+    font-size: 11px;
   }
-  button:hover { background: #505050; }
-  button.primary { background: #2f6fed; border-color: #2f6fed; }
+  button:hover { background: #454545; }
+  button.primary { background: #2f6fed; border-color: #2f6fed; color: #fff; }
   button.primary:hover { background: #4b82f2; }
+  button.subtle { background: transparent; border-color: #444; color: #999; }
+  button.subtle:hover { background: #333; color: #ccc; }
+
+  #status {
+    margin-top: 6px;
+    font-size: 10.5px;
+    color: #9a9a9a;
+    min-height: 13px;
+  }
+  #status.error { color: #ff8a8a; }
+  #status.warn { color: #ffd166; }
+  #status.ok { color: #8ed08e; }
+
+  details#diagnostics { margin-top: 10px; }
+  details#diagnostics summary {
+    cursor: pointer;
+    font-size: 10.5px;
+    color: #888;
+  }
   #log {
-    margin-top: 12px;
+    margin-top: 6px;
     padding: 6px;
-    height: 180px;
+    height: 120px;
     overflow-y: auto;
     background: #1c1c1c;
     border: 1px solid #444;
     border-radius: 4px;
     font-family: ui-monospace, Menlo, monospace;
-    font-size: 10.5px;
+    font-size: 10px;
     white-space: pre-wrap;
     word-break: break-word;
   }
-  .hint { color: #888; font-size: 10.5px; margin-top: 6px; }
 </style>
 </head>
 <body>
-  <h1>Color Lab — prototipo de viabilidad</h1>
+  <h1>Color Lab</h1>
 
-  <div class="field">
-    <label for="lookSelect">Look</label>
-    <select id="lookSelect"></select>
+  <div class="section-label">Look</div>
+  <div id="lookGrid"></div>
+
+  <div class="section-label">Intensity</div>
+  <div class="intensity-row">
+    <span></span>
+    <span class="intensity-value" id="intensityValue" tabindex="0" title="Haz clic para escribir un valor">100.0</span>
+  </div>
+  <div id="intensitySlider">
+    <div class="track"></div>
+    <div class="fill" id="intensityFill"></div>
+    <div class="thumb" id="intensityThumb"></div>
   </div>
 
-  <div class="field">
-    <label for="intensity">Intensity (0 a 100)</label>
-    <input type="number" id="intensity" min="0" max="100" step="0.1" value="100" />
-  </div>
+  <button id="btnApply" class="primary">Aplicar al clip seleccionado</button>
 
-  <button id="btnDiagnose">1. Diagnosticar (no modifica nada)</button>
-  <button id="btnApply" class="primary">2. Aplicar al clip seleccionado</button>
+  <div id="status"></div>
 
-  <div class="hint">
-    «Diagnosticar» solo lee: proyecto, secuencia, selección y lista de efectos
-    disponibles. «Aplicar» crea el efecto y lo inserta en el clip seleccionado
-    (acción deshacible con Cmd/Ctrl+Z).
-  </div>
-
-  <div id="log"></div>
+  <details id="diagnostics">
+    <summary>Diagnostico</summary>
+    <button id="btnDiagnose" class="subtle">Listar efectos y clip seleccionado</button>
+    <div id="log"></div>
+  </details>
 
   <script src="./main.js"></script>
 </body>

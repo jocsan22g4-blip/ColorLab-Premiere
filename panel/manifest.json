@@ -1,8 +1,8 @@
 {
   "manifestVersion": 5,
   "id": "com.jocsankleyver.colorlab.premiere.prototype",
-  "name": "Color Lab (prototipo)",
-  "version": "0.1.0",
+  "name": "Color Lab",
+  "version": "0.2.0",
   "main": "index.html",
   "host": {
     "app": "premierepro",
@@ -13,10 +13,10 @@
       "type": "panel",
       "id": "colorLabPrototypePanel",
       "label": {
-        "default": "Color Lab (prototipo)"
+        "default": "Color Lab"
       },
       "description": {
-        "default": "Prototipo minimo: aplica el efecto Color Lab al clip seleccionado y controla Look e Intensity. Sin identidad visual final."
+        "default": "Navegador de Looks con miniaturas y control de Intensity; aplica Color Lab al clip seleccionado. Sin identidad visual final ni perfiles de camara."
       },
       "minimumSize": {
         "width": 280,
