@@ -34,6 +34,19 @@
  *   - Doble clic en cualquier slider (Intensity incluido) = volver a su
  *     valor por defecto. Mismo gesto que "Reset Parameter" en Effect
  *     Controls/After Effects.
+ *   - Vista previa en vivo mientras se arrastra, no solo al soltar. La
+ *     logica de Premiere se partio en dos: resolveTarget() (lo caro --
+ *     seleccion, matchName, cadena, buscar/insertar el componente) y
+ *     writeParams() (lo barato -- escribir los parametros ya resueltos).
+ *     Un arrastre resuelve el target UNA vez al empezar y reutiliza ese
+ *     mismo target en cada escritura en vivo; repetir resolveTarget() en
+ *     cada pointermove recorreria la cadena entera (con getMatchName()
+ *     async por componente) decenas de veces por segundo. Las escrituras
+ *     en vivo ademas van con throttle (LIVE_INTERVAL_MS) para no saturar
+ *     el puente con Premiere ni, probablemente, el historial de deshacer
+ *     -- EN PREMIERE REAL HAY QUE CONFIRMAR si Cmd+Z deshace un arrastre
+ *     entero de un tiron o paso a paso; si es paso a paso puede hacer
+ *     falta agrupar las escrituras en una sola transaccion de deshacer.
  */
 
 const premierepro = require("premierepro");
@@ -83,6 +96,12 @@ const btnApply = document.getElementById("btnApply");
 
 let selectedLookIndex = 1; // 1-based
 let cachedMatchName = null; // se resuelve una vez y se reutiliza
+
+// Minimo de tiempo entre dos escrituras en vivo durante un arrastre. 70ms
+// (~14 veces por segundo) se ve fluido para una previsualizacion de color
+// sin mandar una transaccion por cada pointermove, que en un arrastre
+// rapido puede disparar a 60-120 por segundo.
+const LIVE_INTERVAL_MS = 70;
 
 function log(msg, level = "info") {
   const stamp = new Date().toLocaleTimeString();
@@ -158,6 +177,31 @@ function createSlider({ idPrefix, min, max, decimals, defaultValue, onCommit }) 
   let value = defaultValue;
   let dragging = false;
 
+  // --- vista previa en vivo durante el arrastre ---------------------------
+  //
+  // `liveTarget` se resuelve UNA vez al empezar a arrastrar (pointerdown) y
+  // se reutiliza en cada escritura mientras dura el gesto -- ver la nota de
+  // cabecera del archivo. Si todavia no esta listo (resolveTarget() es
+  // async) o no hay clip valido, las escrituras en vivo simplemente no
+  // hacen nada: no se avisa con un error hasta soltar, para no llenar el
+  // log de avisos por cada frame sin seleccion.
+  let liveTarget = null;
+  let liveTimer = null;
+  let livePending = false;
+
+  function liveWriteNow() {
+    if (liveTarget && liveTarget.ok) writeParams(liveTarget);
+  }
+
+  function scheduleLiveWrite() {
+    if (liveTimer) { livePending = true; return; }
+    liveWriteNow();
+    liveTimer = setTimeout(() => {
+      liveTimer = null;
+      if (livePending) { livePending = false; scheduleLiveWrite(); }
+    }, LIVE_INTERVAL_MS);
+  }
+
   function render() {
     const pct = ((value - min) / (max - min)) * 100;
     // El track muestra siempre el degrade completo de marca; la mascara
@@ -180,19 +224,34 @@ function createSlider({ idPrefix, min, max, decimals, defaultValue, onCommit }) 
     el.classList.add("dragging");
     el.setPointerCapture(ev.pointerId);
     setFromClientX(ev.clientX);
+
+    // Resolver el target una vez, al empezar el gesto. Es async -- hasta
+    // que no resuelva, scheduleLiveWrite() no tiene nada que escribir.
+    liveTarget = null;
+    resolveTarget({ silent: true }).then((t) => {
+      liveTarget = t;
+      if (dragging && t.ok) scheduleLiveWrite();
+    });
+
     ev.preventDefault();
   });
   el.addEventListener("pointermove", (ev) => {
     if (!dragging) return;
     setFromClientX(ev.clientX);
+    scheduleLiveWrite();
   });
   function finishDrag(ev) {
     if (!dragging) return;
     dragging = false;
     el.classList.remove("dragging");
     try { el.releasePointerCapture(ev.pointerId); } catch {}
-    // Solo se llama a Premiere al soltar -- aplicar en cada pixel arrastrado
-    // apilaria una llamada de transaccion por frame de movimiento.
+    if (liveTimer) { clearTimeout(liveTimer); liveTimer = null; }
+    liveTarget = null;
+    // Al soltar se vuelve a pasar por el camino completo (onCommit ->
+    // applyCurrent -> resolveTarget), por si algo cambio durante el
+    // arrastre (p. ej. si el componente no existia y recien se inserto en
+    // la primera escritura en vivo) y para que los avisos normales
+    // (sin clip seleccionado, etc.) se muestren una vez, al terminar.
     onCommit();
   }
   el.addEventListener("pointerup", finishDrag);
@@ -399,63 +458,71 @@ async function findExistingComponentIndex(chain, matchName) {
   return -1;
 }
 
-let applying = false;
+/**
+ * La parte cara: seleccion del clip, matchName, cadena de componentes, y
+ * buscar (o insertar) el componente Color Lab. Devuelve
+ * `{ ok: true, project, live }` listo para pasarle a writeParams(), o
+ * `{ ok: false }` con el motivo ya logueado (salvo que `silent`).
+ *
+ * Se llama una vez por clic/edicion, y tambien una vez al EMPEZAR cada
+ * arrastre (pointerdown) -- no en cada pointermove, ver la nota de
+ * cabecera del archivo.
+ */
+async function resolveTarget({ silent = false } = {}) {
+  const selected = await getSelectedVideoClip({ silent });
+  if (!selected.ok) {
+    if (!silent) setStatus("Selecciona un clip de video para aplicar el Look.", "warn");
+    return { ok: false, reason: selected.reason };
+  }
+  const { project, trackItem } = selected;
 
-/** Aplica (o actualiza) Look/Intensity en el clip actualmente seleccionado. */
-async function applyCurrent() {
-  if (applying) return; // evita solapar transacciones si el usuario encadena clics/arrastres
-  applying = true;
-  btnApply.disabled = true;
+  const matchName = await findColorLabMatchName();
+  if (!matchName) {
+    if (!silent) setStatus("No se encontro el efecto Color Lab instalado en Premiere.", "error");
+    return { ok: false, reason: "sin matchName" };
+  }
+
+  let chain;
   try {
-    const selected = await getSelectedVideoClip();
-    if (!selected.ok) {
-      setStatus("Selecciona un clip de video para aplicar el Look.", "warn");
-      return;
-    }
-    const { project, trackItem } = selected;
-
-    const matchName = await findColorLabMatchName();
-    if (!matchName) {
-      setStatus("No se encontro el efecto Color Lab instalado en Premiere.", "error");
-      return;
-    }
-
-    let chain;
-    try {
-      chain = await trackItem.getComponentChain();
-    } catch (e) {
+    chain = await trackItem.getComponentChain();
+  } catch (e) {
+    if (!silent) {
       log(`Fallo obteniendo la cadena de video: ${e}`, "error");
       setStatus("No se pudo leer la cadena de video del clip.", "error");
-      return;
     }
-    if (!chain) {
-      setStatus("getComponentChain() devolvio vacio.", "error");
-      return;
-    }
+    return { ok: false, reason: "sin cadena" };
+  }
+  if (!chain) {
+    if (!silent) setStatus("getComponentChain() devolvio vacio.", "error");
+    return { ok: false, reason: "cadena vacia" };
+  }
 
-    let targetIndex = await findExistingComponentIndex(chain, matchName);
+  let targetIndex = await findExistingComponentIndex(chain, matchName);
 
-    // Si no esta aplicado todavia, insertarlo (transaccion 1). El
-    // componente recien creado por VideoFilterFactory no expone
-    // getParamCount/getParam hasta que se reinserta y se relee desde la
-    // cadena (descubierto en la Etapa 1).
-    if (targetIndex === -1) {
-      let component, countBefore, appended = false;
-      try {
-        component = await premierepro.VideoFilterFactory.createComponent(matchName);
-        countBefore = chain.getComponentCount();
-      } catch (e) {
+  // Si no esta aplicado todavia, insertarlo (transaccion 1). El
+  // componente recien creado por VideoFilterFactory no expone
+  // getParamCount/getParam hasta que se reinserta y se relee desde la
+  // cadena (descubierto en la Etapa 1).
+  if (targetIndex === -1) {
+    let component, countBefore, appended = false;
+    try {
+      component = await premierepro.VideoFilterFactory.createComponent(matchName);
+      countBefore = chain.getComponentCount();
+    } catch (e) {
+      if (!silent) {
         log(`Fallo creando el componente: ${e}`, "error");
         setStatus("No se pudo crear el componente del efecto.", "error");
-        return;
       }
-      try {
-        project.lockedAccess(() => {
-          appended = project.executeTransaction((compoundAction) => {
-            compoundAction.addAction(chain.createAppendComponentAction(component));
-          }, "Color Lab: insertar efecto");
-        });
-      } catch (e) {
+      return { ok: false, reason: "fallo creando componente" };
+    }
+    try {
+      project.lockedAccess(() => {
+        appended = project.executeTransaction((compoundAction) => {
+          compoundAction.addAction(chain.createAppendComponentAction(component));
+        }, "Color Lab: insertar efecto");
+      });
+    } catch (e) {
+      if (!silent) {
         const msg = String(e);
         if (/invalid parameter/i.test(msg)) {
           log(`No se pudo insertar el efecto (Invalid parameter). El item seleccionado probablemente no tiene una cadena de video valida para un filtro de video (p. ej. es en realidad un clip de audio). ${msg}`, "error");
@@ -464,88 +531,126 @@ async function applyCurrent() {
           log(`Fallo insertando el efecto en la cadena: ${msg}`, "error");
           setStatus("Fallo insertando el efecto.", "error");
         }
-        return;
       }
-      if (!appended) {
-        setStatus("executeTransaction() de insercion devolvio false.", "error");
-        return;
-      }
-      targetIndex = countBefore;
+      return { ok: false, reason: "fallo insertando" };
     }
+    if (!appended) {
+      if (!silent) setStatus("executeTransaction() de insercion devolvio false.", "error");
+      return { ok: false, reason: "insercion devolvio false" };
+    }
+    targetIndex = countBefore;
+  }
 
-    let live;
-    try {
-      live = chain.getComponentAtIndex(targetIndex);
-    } catch (e) {
+  let live;
+  try {
+    live = chain.getComponentAtIndex(targetIndex);
+  } catch (e) {
+    if (!silent) {
       log(`No se pudo releer el componente (indice ${targetIndex}): ${e}`, "error");
       setStatus("No se pudo releer el efecto insertado.", "error");
-      return;
     }
-    if (typeof live?.getParamCount !== "function") {
+    return { ok: false, reason: "fallo releyendo" };
+  }
+  if (typeof live?.getParamCount !== "function") {
+    if (!silent) {
       log("El componente insertado no expone getParamCount().", "error");
       console.log("componente insertado:", live);
       setStatus("El efecto quedo aplicado con valores por defecto; no se pudo escribir Look/Intensity.", "error");
-      return;
     }
+    return { ok: false, reason: "sin getParamCount" };
+  }
 
-    let ok = false;
-    try {
-      project.lockedAccess(() => {
-        ok = project.executeTransaction((compoundAction) => {
-          const count = live.getParamCount();
-          let lookParam = null;
-          let intensityParam = null;
-          // Etapa 3: un parametro por entrada de BASIC, buscado por el
-          // mismo displayName que declara ae/ColorLabAE.cpp.
-          const basicParams = {};
-          for (let i = 0; i < count; i++) {
-            const p = live.getParam(i);
-            if (p?.displayName === "Look") lookParam = p;
-            else if (p?.displayName === "Intensity") intensityParam = p;
-            else {
-              for (const [key, cfg] of Object.entries(BASIC)) {
-                if (p?.displayName === cfg.displayName) basicParams[key] = p;
-              }
+  return { ok: true, project, live };
+}
+
+/**
+ * La parte barata: escribe Look/Intensity/Basic Adjustments sobre un
+ * target YA resuelto por resolveTarget(). Sincrona salvo por el propio
+ * executeTransaction -- es la que se llama repetidas veces por segundo
+ * durante un arrastre en vivo.
+ */
+function writeParams(target, { silent = false } = {}) {
+  const { project, live } = target;
+  let ok = false;
+  try {
+    project.lockedAccess(() => {
+      ok = project.executeTransaction((compoundAction) => {
+        const count = live.getParamCount();
+        let lookParam = null;
+        let intensityParam = null;
+        // Etapa 3: un parametro por entrada de BASIC, buscado por el
+        // mismo displayName que declara ae/ColorLabAE.cpp.
+        const basicParams = {};
+        for (let i = 0; i < count; i++) {
+          const p = live.getParam(i);
+          if (p?.displayName === "Look") lookParam = p;
+          else if (p?.displayName === "Intensity") intensityParam = p;
+          else {
+            for (const [key, cfg] of Object.entries(BASIC)) {
+              if (p?.displayName === cfg.displayName) basicParams[key] = p;
             }
           }
+        }
 
-          if (lookParam) {
-            // El popup "Look" es base-1 en After Effects (PF_ADD_POPUP),
-            // pero Premiere interpreta el valor del ComponentParam como
-            // indice base-0 -- se resta 1 (hallazgo de la Etapa 1).
-            const kf = lookParam.createKeyframe(selectedLookIndex - 1);
-            compoundAction.addAction(lookParam.createSetValueAction(kf, true));
-          } else {
-            log(`No se encontro un parametro llamado "Look" entre ${count} parametros.`, "warn");
-          }
+        if (lookParam) {
+          // El popup "Look" es base-1 en After Effects (PF_ADD_POPUP),
+          // pero Premiere interpreta el valor del ComponentParam como
+          // indice base-0 -- se resta 1 (hallazgo de la Etapa 1).
+          const kf = lookParam.createKeyframe(selectedLookIndex - 1);
+          compoundAction.addAction(lookParam.createSetValueAction(kf, true));
+        } else if (!silent) {
+          log(`No se encontro un parametro llamado "Look" entre ${count} parametros.`, "warn");
+        }
 
-          if (intensityParam) {
-            const kf = intensityParam.createKeyframe(intensitySlider.value);
-            compoundAction.addAction(intensityParam.createSetValueAction(kf, true));
-          } else {
-            log(`No se encontro un parametro llamado "Intensity" entre ${count} parametros.`, "warn");
-          }
+        if (intensityParam) {
+          const kf = intensityParam.createKeyframe(intensitySlider.value);
+          compoundAction.addAction(intensityParam.createSetValueAction(kf, true));
+        } else if (!silent) {
+          log(`No se encontro un parametro llamado "Intensity" entre ${count} parametros.`, "warn");
+        }
 
-          // Si el .aex instalado todavia es el de la Etapa 2, estos cinco
-          // simplemente no aparecen -- se loguea en warn y el resto del
-          // panel (Look/Intensity/Split Tone) sigue funcionando igual.
-          for (const [key, cfg] of Object.entries(BASIC)) {
-            const param = basicParams[key];
-            if (!param) {
-              log(`No se encontro un parametro llamado "${cfg.displayName}" entre ${count} parametros.`, "warn");
-              continue;
-            }
-            const kf = param.createKeyframe(basicSliders[key].value);
-            compoundAction.addAction(param.createSetValueAction(kf, true));
+        // Si el .aex instalado todavia es el de la Etapa 2, estos cinco
+        // simplemente no aparecen -- se loguea en warn (salvo en vivo,
+        // para no llenar el log mientras se arrastra) y el resto del
+        // panel (Look/Intensity/Split Tone) sigue funcionando igual.
+        for (const [key, cfg] of Object.entries(BASIC)) {
+          const param = basicParams[key];
+          if (!param) {
+            if (!silent) log(`No se encontro un parametro llamado "${cfg.displayName}" entre ${count} parametros.`, "warn");
+            continue;
           }
-        }, "Color Lab: aplicar look");
-      });
-    } catch (e) {
+          const kf = param.createKeyframe(basicSliders[key].value);
+          compoundAction.addAction(param.createSetValueAction(kf, true));
+        }
+      }, "Color Lab: aplicar look");
+    });
+  } catch (e) {
+    if (!silent) {
       log(`La transaccion de parametros fallo: ${e}`, "error");
       setStatus("Fallo aplicando Look/Intensity.", "error");
-      return;
     }
+    return false;
+  }
+  return ok;
+}
 
+let applying = false;
+
+/**
+ * Camino completo: resuelve el target y escribe los parametros. Se usa
+ * para el boton Aplicar, el clic en un Look, y al soltar/editar un
+ * slider -- en todos esos casos vale la pena pagar el costo de
+ * resolveTarget() porque no se repite docenas de veces por segundo.
+ */
+async function applyCurrent() {
+  if (applying) return; // evita solapar transacciones si el usuario encadena clics/arrastres
+  applying = true;
+  btnApply.disabled = true;
+  try {
+    const target = await resolveTarget();
+    if (!target.ok) return; // resolveTarget() ya puso el status/log correspondiente
+
+    const ok = writeParams(target);
     if (ok) {
       const name = LOOKS[selectedLookIndex - 1]?.name ?? selectedLookIndex;
       setStatus(`${name} · Intensity ${intensitySlider.value.toFixed(1)}`, "ok");
