@@ -695,67 +695,109 @@ function writeParams(target, { only = null, silent = false } = {}) {
 
 /**
  * Lee el valor actual de un ComponentParam.
- *
- * La API documentada ofrece dos caminos y ninguno estaba probado contra
- * este runtime, asi que se intentan por orden y se registra cual funciono
- * -- el mismo criterio con el que se descubrio que getMatchName() era
- * async. `getStartValue()` devuelve un Keyframe (de ahi el .value);
- * `getValueAtTime()` devuelve el valor directo pero necesita un TickTime.
  */
-let readStrategy = null; // se aprende en la primera lectura y se reutiliza
+// NO SE USA getStartValue(): devuelve un Keyframe, y la propiedad `value`
+// de Keyframe esta documentada como SOLO ESCRITURA. Se intento en la
+// primera version de esto y, efectivamente, no devolvia nada legible --
+// sin lanzar excepcion, que es lo que hizo el primer diagnostico inutil.
+//
+// El camino que si devuelve el valor es getValueAtTime(TickTime), y el
+// TickTime se construye con TickTime.createWithSeconds() /
+// createWithTicks(). Se prueban varias formas porque ninguna estaba
+// verificada contra este runtime.
+let readStrategy = null;   // null = sin resolver, "ninguna" = imposible
+let cachedTickTime = null;
+let probed = false;        // el primer intento loguea con detalle; el resto, en silencio
 
-async function readParamValue(param, tickTime) {
-  if (!param) return null;
+function probe(msg, level = "info") {
+  if (!probed) log(msg, level);
+}
 
-  if (readStrategy === null || readStrategy === "startValue") {
-    try {
-      if (typeof param.getStartValue === "function") {
-        const kf = await param.getStartValue();
-        const v = (kf && typeof kf === "object" && "value" in kf) ? kf.value : kf;
-        if (typeof v === "number" && Number.isFinite(v)) {
-          if (readStrategy === null) {
-            readStrategy = "startValue";
-            log("Lectura de parametros: getStartValue() funciona.");
-          }
-          return v;
-        }
-      }
-    } catch (e) {
-      if (readStrategy === null) log(`getStartValue() fallo: ${e}`, "warn");
+/** Candidatos a TickTime, de mas a menos preferible. */
+async function buildTickTimes(sequence) {
+  const out = [];
+
+  // 1) La posicion del cabezal: la correcta si el parametro tiene
+  //    fotogramas clave.
+  try {
+    if (sequence && typeof sequence.getPlayerPosition === "function") {
+      const t = await sequence.getPlayerPosition();
+      if (t) out.push({ label: "getPlayerPosition()", t });
+      else probe("getPlayerPosition() devolvio vacio.", "warn");
+    } else {
+      probe("La secuencia no expone getPlayerPosition().", "warn");
     }
+  } catch (e) {
+    probe(`getPlayerPosition() fallo: ${e}`, "warn");
   }
 
-  if (readStrategy === null || readStrategy === "valueAtTime") {
+  // 2) Tiempo cero. Para un parametro sin animar vale cualquier instante.
+  const TT = premierepro?.TickTime;
+  if (TT) {
     try {
-      if (typeof param.getValueAtTime === "function" && tickTime) {
-        const v = await param.getValueAtTime(tickTime);
-        if (typeof v === "number" && Number.isFinite(v)) {
-          if (readStrategy === null) {
-            readStrategy = "valueAtTime";
-            log("Lectura de parametros: getValueAtTime() funciona.");
-          }
-          return v;
-        }
+      if (typeof TT.createWithSeconds === "function") {
+        out.push({ label: "TickTime.createWithSeconds(0)", t: TT.createWithSeconds(0) });
+      } else {
+        probe("TickTime no expone createWithSeconds().", "warn");
       }
     } catch (e) {
-      if (readStrategy === null) log(`getValueAtTime() fallo: ${e}`, "warn");
+      probe(`TickTime.createWithSeconds(0) fallo: ${e}`, "warn");
     }
+    try {
+      if (typeof TT.createWithTicks === "function") {
+        out.push({ label: 'TickTime.createWithTicks("0")', t: TT.createWithTicks("0") });
+      }
+    } catch (e) {
+      probe(`TickTime.createWithTicks("0") fallo: ${e}`, "warn");
+    }
+    try {
+      if (TT.TIME_ZERO) out.push({ label: "TickTime.TIME_ZERO", t: TT.TIME_ZERO });
+    } catch {}
+  } else {
+    probe("El modulo premierepro no expone TickTime.", "warn");
   }
 
-  if (readStrategy === null) {
-    readStrategy = "ninguna";
-    log("No se pudo leer el valor de ningun parametro: el panel no podra sincronizarse con el clip.", "warn");
+  if (out.length === 0) probe("No se pudo construir ningun TickTime.", "warn");
+  return out;
+}
+
+/** Saca un numero de lo que sea que devuelva la API. */
+function asNumber(v) {
+  if (typeof v === "number" && Number.isFinite(v)) return v;
+  // Por si el runtime devuelve un Keyframe en vez del valor crudo.
+  if (v && typeof v === "object") {
+    const inner = v.value;
+    if (typeof inner === "number" && Number.isFinite(inner)) return inner;
   }
   return null;
 }
 
-/** Posicion del cabezal, si se puede obtener. Solo la usa getValueAtTime(). */
-async function currentTickTime(sequence) {
-  try {
-    if (sequence && typeof sequence.getPlayerPosition === "function") {
-      return await sequence.getPlayerPosition();
+async function readParamValue(param, tickTimes) {
+  if (!param || typeof param.getValueAtTime !== "function") {
+    probe("El ComponentParam no expone getValueAtTime().", "warn");
+    return null;
+  }
+
+  // Si ya se supo que TickTime funciona, se usa solo ese.
+  const candidatos = cachedTickTime ? [cachedTickTime] : tickTimes;
+
+  for (const cand of candidatos) {
+    try {
+      const raw = await param.getValueAtTime(cand.t);
+      const v = asNumber(raw);
+      if (v !== null) {
+        if (readStrategy === null) {
+          readStrategy = "valueAtTime";
+          cachedTickTime = cand;
+          log(`Lectura de parametros: getValueAtTime() con ${cand.label}.`);
+        }
+        return v;
+      }
+      probe(`getValueAtTime() con ${cand.label} devolvio ${typeof raw}: ${JSON.stringify(raw)}`, "warn");
+    } catch (e) {
+      probe(`getValueAtTime() con ${cand.label} fallo: ${e}`, "warn");
     }
-  } catch {}
+  }
   return null;
 }
 
@@ -770,26 +812,36 @@ async function readParamsFromClip(target, sequence) {
     return out;
   }
 
-  const tickTime = await currentTickTime(sequence);
+  const tickTimes = await buildTickTimes(sequence);
 
   for (let i = 0; i < count; i++) {
     let p;
     try { p = live.getParam(i); } catch { continue; }
     const name = p?.displayName;
     if (name === "Look") {
-      const v = await readParamValue(p, tickTime);
+      const v = await readParamValue(p, tickTimes);
       // Premiere guarda el popup base-0; el panel es base-1.
       if (v !== null) out.look = Math.round(v) + 1;
     } else if (name === "Intensity") {
-      const v = await readParamValue(p, tickTime);
+      const v = await readParamValue(p, tickTimes);
       if (v !== null) out.intensity = v;
     } else {
       for (const [key, cfg] of Object.entries(BASIC)) {
         if (name === cfg.displayName) {
-          const v = await readParamValue(p, tickTime);
+          const v = await readParamValue(p, tickTimes);
           if (v !== null) out[key] = v;
         }
       }
+    }
+  }
+
+  // El primer sondeo ya dejo escrito en el log todo lo que hizo falta
+  // saber; a partir de aqui, silencio.
+  if (!probed) {
+    probed = true;
+    if (readStrategy === null) {
+      readStrategy = "ninguna";
+      log("No se pudo leer ningun parametro: el panel no se sincronizara con el clip. Las lineas de arriba dicen por que.", "warn");
     }
   }
   return out;
