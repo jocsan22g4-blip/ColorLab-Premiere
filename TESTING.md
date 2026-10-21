@@ -76,13 +76,48 @@ hay que replantear el diseño.
    fuente 4K. Reproduce y nota si hay caída notable de fps, y si puedes,
    cronometra una exportación corta con y sin Bloom.
 
-## 5. Después de probar
+## 5. Resultado (probado en Premiere 26.5.2, 20 oct 2026)
 
-Pásame:
-- El matchName exacto de la pregunta 1.
-- Qué funcionó y qué no, de las 6 preguntas.
-- Cualquier error en rojo de UDT o en la consola del Debugger (el enlace
-  `{}` en la ventana de UDT).
+Las 6 preguntas quedaron respondidas positivamente:
 
-Con eso decidimos si seguimos a la Etapa 2 (navegador de looks con
-miniaturas) tal cual, o si hay que ajustar el enfoque.
+1. **matchName exacto**: `AE.JKColorLab` (demo: `AE.JKColorLabDemo`). Premiere
+   le antepone el prefijo `AE.` al nombre que se le dio en `ae/ColorLabAE.cpp`.
+2. **Insertar el efecto**: `createAppendComponentAction` funciona y el efecto
+   aparece en Controles de efectos.
+3. **Escribir Look/Intensity + deshacer**: funciona con `createSetValueAction`,
+   y Cmd/Ctrl+Z deshace el cambio correctamente. Dos hallazgos importantes al
+   implementarlo (ver notas abajo).
+4. **Casos límite** (sin proyecto, sin secuencia, sin selección, clip de
+   audio): el panel no se traba en ninguno, siempre da un aviso o error
+   legible.
+5. **Comparación con Resolve**: el mismo Look sobre la misma fuente se ve
+   igual en Premiere que en el OFX de Resolve.
+6. **Rendimiento con Bloom en 4K**: sin caída notable.
+
+### Notas para la Etapa 2
+
+- **El componente recién creado por `VideoFilterFactory.createComponent()`
+  no expone `getParamCount()`/`getParam()` antes de insertarse en la
+  cadena.** Hay que insertarlo primero (transacción 1), releerlo con
+  `chain.getComponentAtIndex(indice)` y recién ahí leer/escribir parámetros
+  (transacción 2). Intentar leer parámetros del componente "suelto" tira
+  `TypeError: getParamCount is not a function`.
+- **El popup "Look" es base-1 del lado de After Effects, pero Premiere lo
+  interpreta como índice base-0 de la lista de choices.** Hay que restar 1
+  al índice (1-based, como en `looks/looks.manifest`) antes de mandarlo con
+  `createKeyframe()`.
+- **UXP no aplica los valores iniciales declarados en el HTML**
+  (`value="100"`, opción seleccionada por defecto de un `<select>`): hay que
+  forzarlos por JS después de poblar los controles.
+- **El `<input type="range">` nativo se trababa en 0 al arrastrarlo** en
+  este runtime de UXP — se reemplazó por un campo numérico. Para la Etapa 2
+  conviene un deslizador construido a mano (HTML/CSS propio), no el control
+  nativo.
+- **Un `AudioClipTrackItem` también expone `getComponentChain()`** — no
+  alcanza con comprobar que el método exista para distinguir video de audio;
+  el error real (`Invalid parameter`) sale recién al intentar insertar un
+  filtro de video ahí.
+
+Con esto, la arquitectura (panel UXP controlando el efecto AE ya compilado)
+queda validada. Seguimos a la Etapa 2: navegador de looks con miniaturas,
+aplicar look al clip, control de intensidad con la UI definitiva.
