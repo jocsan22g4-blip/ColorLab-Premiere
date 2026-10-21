@@ -1652,7 +1652,6 @@ setInterval(() => { syncFromClip(); }, SYNC_INTERVAL_MS);
 // un boton para encenderlo. Si la API no existe o falla, el aviso no aparece.
 const bitDepthWarnEl = document.getElementById("bitDepthWarn");
 const btnBitDepthEl = document.getElementById("btnBitDepth");
-let bitDepthSeq = null;
 
 async function checkBitDepth() {
   if (!bitDepthWarnEl) return;
@@ -1662,7 +1661,6 @@ async function checkBitDepth() {
     if (!sequence || typeof sequence.getSettings !== "function") { bitDepthWarnEl.style.display = "none"; return; }
     const settings = await sequence.getSettings();
     if (!settings || typeof settings.getMaximumBitDepth !== "function") { bitDepthWarnEl.style.display = "none"; return; }
-    bitDepthSeq = settings;
     const on = await settings.getMaximumBitDepth();
     bitDepthWarnEl.style.display = on === false ? "" : "none";
   } catch {
@@ -1673,14 +1671,30 @@ setInterval(() => { checkBitDepth(); }, 3000);
 setTimeout(() => { checkBitDepth(); }, 600);
 
 async function enableBitDepth() {
+  // getSettings() devuelve una COPIA: llamar a setMaximumBitDepth(true) sobre
+  // ella no cambia la secuencia (lo que paso en la primera version). Hay que
+  // modificar la copia y APLICARLA con sequence.createSetSettingsAction dentro
+  // de una transaccion, como el resto de cambios del proyecto.
   try {
-    if (!bitDepthSeq || typeof bitDepthSeq.setMaximumBitDepth !== "function") return;
-    const ok = await bitDepthSeq.setMaximumBitDepth(true);
-    log(`setMaximumBitDepth(true) -> ${ok}`);
-    if (ok) setStatus("Profundidad de bits máxima activada en la secuencia", "ok");
+    const project = await premierepro.Project.getActiveProject();
+    const sequence = project ? await project.getActiveSequence() : null;
+    if (!sequence) throw new Error("no hay secuencia activa");
+    const settings = await sequence.getSettings();
+    const set = await settings.setMaximumBitDepth(true);
+    log(`setMaximumBitDepth(true) sobre la copia -> ${set}`);
+    let ok = false;
+    project.lockedAccess(() => {
+      ok = project.executeTransaction((compoundAction) => {
+        compoundAction.addAction(sequence.createSetSettingsAction(settings));
+      }, "Color Lab: profundidad de bits máxima");
+    });
+    log(`createSetSettingsAction aplicado -> ${ok}`);
+    const now = await (await sequence.getSettings()).getMaximumBitDepth();
+    log(`getMaximumBitDepth() despues -> ${now}`);
+    if (now === true) setStatus("Profundidad de bits máxima activada en la secuencia", "ok");
     else setStatus("No se pudo activar. Actívala en Secuencia › Configuración de secuencia.", "warn");
   } catch (e) {
-    log(`setMaximumBitDepth fallo: ${e}`, "warn");
+    log(`Activar profundidad de bits fallo: ${e}`, "warn");
     setStatus("No se pudo activar. Actívala en Secuencia › Configuración de secuencia.", "warn");
   }
   checkBitDepth();
