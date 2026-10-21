@@ -267,7 +267,13 @@ btnApply.addEventListener("click", async () => {
         }
 
         if (lookParam) {
-          const kf = lookParam.createKeyframe(lookIndex);
+          // Descubierto probando en vivo: aunque el popup "Look" es base-1
+          // del lado de After Effects (PF_ADD_POPUP, igual que el OFX),
+          // Premiere interpreta el valor del ComponentParam como indice
+          // base-0 de la lista. Seleccionar "1. Nature" en este panel
+          // aplicaba "Amber" (el #2); "3. Sage" aplicaba "Ember" (el #4) --
+          // siempre +1 de desfase. Se corrige restando 1 aqui.
+          const kf = lookParam.createKeyframe(lookIndex - 1);
           compoundAction.addAction(lookParam.createSetValueAction(kf, true));
         } else {
           log(`No se encontro un parametro llamado "Look" entre ${count} parametros.`, "warn");
