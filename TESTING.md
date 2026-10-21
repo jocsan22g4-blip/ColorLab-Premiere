@@ -1,4 +1,8 @@
-# Probar el prototipo (Etapa 1)
+# Probar el panel
+
+Las secciones 0-5 son el prototipo de la Etapa 1 (ya validado) y se dejan
+como referencia de los hallazgos. Lo vigente para el panel actual esta en las
+secciones 6 y 7.
 
 Esto solo se puede probar en tu Mac, dentro de Premiere Pro real — no hay
 forma de simularlo en CI ni en este entorno de Claude. Son dos partes:
@@ -40,15 +44,15 @@ posterior), así que es manual:
    `panel/manifest.json` de este repositorio (opción preferida: apuntar
    directo al `manifest.json`, no a un `.zip`).
 2. Abre Premiere Pro con un proyecto cualquiera.
-3. En UDT, sobre el plugin **"Color Lab (prototipo)"**, pulsa **Load & Watch**
+3. En UDT, sobre el plugin **"Color Lab"**, pulsa **Load & Watch**
    (recomendado — recarga sola si edito el código; si cambio
    `manifest.json` hay que **Unload** y volver a cargar).
 4. Busca la notificación en la parte inferior de UDT: verde = cargó bien;
    roja con **Details** = error, ábrelo y pégame el log.
-5. El panel "Color Lab (prototipo)" debería aparecer como panel acoplable
+5. El panel "Color Lab" debería aparecer como panel acoplable
    en Premiere (**Window → Extensions**, o ya visible si UDT lo abrió).
 
-## 4. Qué verificar (las 6 preguntas del informe, en orden)
+## 4. Qué verificar en la Etapa 1 (las 6 preguntas del informe — histórico)
 
 Anota el resultado de cada una — eso decide si seguimos a la Etapa 2 o si
 hay que replantear el diseño.
@@ -121,31 +125,72 @@ Las 6 preguntas quedaron respondidas positivamente:
 Con esto, la arquitectura (panel UXP controlando el efecto AE ya compilado)
 queda validada.
 
-## 6. Etapa 2 (interfaz real)
+## 6. Panel actual
 
-El panel ahora tiene:
+Lo que hay y como comprobarlo en Premiere real:
 
-- **Grilla de Looks**: 15 miniaturas (3 columnas). Clic en una la aplica de
-  inmediato al clip seleccionado — ya no hace falta el boton.
-- **Deslizador de Intensity**: arrastralo con el mouse; se aplica al
-  soltarlo (no en cada pixel, para no llenar el historial de deshacer de un
-  tiron). El numero de la derecha tambien se puede editar escribiendo
-  directamente (clic, escribe, Enter).
-- **Reutilizacion del efecto**: si el clip seleccionado ya tiene Color Lab
-  aplicado, cambiar de Look o mover Intensity actualiza esa misma instancia
-  en vez de insertar una nueva cada vez — antes del cambio, cada clic en
-  "Aplicar" del prototipo apilaba un componente de efecto adicional.
-- El boton "Aplicar al clip seleccionado" sigue disponible (re-aplica los
-  valores actuales; util si cambiaste de clip seleccionado).
+- **Look e Intensity.** Clic en un numero de la tira aplica el Look; el
+  seleccionado va en blanco. En Controles de efectos debe haber **una sola**
+  instancia de Color Lab aunque cambies de Look muchas veces.
+- **Secciones** (Split Tone, Bloom, Halation, Film Grain): se despliegan con
+  la cabecera y se activan con el interruptor. Activar una seccion en el
+  panel debe verse en Controles de efectos y al reves.
+- **Bloom:** Tint Hue / Tint Saturation (la muestra de color es el tinte
+  aplicado), Blend y View Bloom. **Halation:** igual, sin Blend en el panel.
+- **View Bloom / View Halation:** muestran solo lo que cada capa aporta
+  (sobre negro, con ganancia x3). Requiere que la seccion este activa y con
+  Amount > 0. No existe en la edicion DEMO.
+- **Doble clic** en cualquier slider = valor por defecto. Clic en el numero
+  = escribirlo a mano.
+- **Sincronizacion:** cambia entre un clip con Color Lab y otro sin el: el
+  panel debe pasar a los valores del clip, o a los defectos si no lo tiene.
+  Prueba sobre todo una casilla encendida en un clip y apagada en otro.
+- **Deshacer:** Cmd/Ctrl+Z tras un arrastre — *pendiente de confirmar* si
+  deshace el gesto entero o paso a paso (las escrituras en vivo van cada
+  70 ms).
 
-Que probar en esta etapa:
+### Si el panel y Controles de efectos no coinciden
 
-1. Selecciona un clip, haz clic en varios Looks seguidos: en Controles de
-   efectos debe seguir habiendo **una sola** instancia de Color Lab (no una
-   por cada clic).
-2. Arrastra el deslizador de Intensity de un extremo a otro y suelta: el
-   valor debe quedar aplicado, y Cmd/Ctrl+Z debe deshacerlo en un solo paso.
-3. Prueba escribir un numero de Intensity a mano (clic en el numero, escribe
-   "35", Enter).
-4. Cambia de clip seleccionado (uno sin el efecto todavia) y aplica un Look:
-   debe insertarse ahi tambien, de forma independiente.
+Abre **Diagnostico** → **Listar efectos y clip seleccionado**. El log dice
+cuantos parametros ubico el panel (esperado: 34 de 34), cuales faltan, el
+orden que ve Premiere y el **valor crudo** que devuelve cada parametro. Esa
+linea es lo primero que hay que mirar: asi se encontro que las casillas
+llegan como `{"value": true|false}`.
+
+### Notas de UXP (cada una costo una prueba en Premiere real)
+
+- `<button>` se pinta con el aspecto nativo del SO aunque se ponga
+  `appearance: none`: usar `<div role="button">` con `border` (no
+  `box-shadow: inset`).
+- El `<body>` no se desplaza: el contenido va en `#app` (absoluto,
+  `overflow-y: auto`).
+- `<input type="range">` nativo se traba; los valores por defecto del HTML no
+  se honran; CSS `aspect-ratio` no es fiable; en Grid hace falta
+  `min-width: 0`.
+- Leer un parametro: `Keyframe.value` no sirve para leer; se usa
+  `getValueAtTime(TickTime)`. Las casillas devuelven `{"value": bool}`.
+- Escribir un parametro de **color** pierde el canal azul (error de Adobe,
+  26.0.2 a 26.5.2 al menos).
+- El popup "Look" es base-1 en After Effects y base-0 en Premiere.
+- El manifiesto no puede forzar el tamano ni la posicion del panel: solo
+  pide un minimo (320x600). Lo fiable es acoplarlo y guardar el espacio de
+  trabajo.
+- Los tamanos y el manifiesto solo se recargan con **Unload** + volver a
+  cargar en UDT.
+
+## 7. Banding con material log (21 oct 2026)
+
+Con una toma D-Log de dron, aplicar Color Lab daba banding incluso con
+Intensity 0 y todo apagado. **No era el efecto:** con todo en neutro el frame
+sale identico bit a bit (lo vigila `tests/test_neutral_identity.cpp` en
+ColorLab-3). Se midio el buffer que entrega Premiere al efecto: con un
+efecto en la cadena y la secuencia sin *Maximum Bit Depth*, Premiere lo
+rasteriza a 8 bits antes de pasarlo.
+
+Para trabajar con material log:
+
+1. Secuencia con **Maximum Bit Depth** y **Maximum Render Quality**
+   activados.
+2. Monitor de Programa a **resolucion completa** (a 1/4 se ve mas banding).
+3. Si se sospecha del efecto, el diagnostico del render
+   (`ae/RenderDiagnostics.h` en ColorLab-3) mide lo que llega y lo que sale.
