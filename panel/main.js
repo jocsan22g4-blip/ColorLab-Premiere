@@ -34,6 +34,14 @@
  *   - Doble clic en cualquier slider (Intensity incluido) = volver a su
  *     valor por defecto. Mismo gesto que "Reset Parameter" en Effect
  *     Controls/After Effects.
+ *   - EL PANEL YA NO PISA LO QUE AJUSTES EN CONTROLES DE EFECTOS. Cada
+ *     gesto escribe UNICAMENTE su propio parametro (writeParams acepta
+ *     `only`). Antes escribia los seis en cada aplicacion, asi que poner
+ *     Intensity a 0 en Controles de efectos y luego tocar el panel la
+ *     devolvia a 100 -- costo real: durante la caza del banding del 21 oct
+ *     creimos tener el efecto a 0 y el log del propio efecto demostro que
+ *     corria a 100. La excepcion es la primera insercion en un clip: ahi
+ *     el panel es la unica fuente de verdad y vuelca todo.
  *   - Vista previa en vivo mientras se arrastra, no solo al soltar. La
  *     logica de Premiere se partio en dos: resolveTarget() (lo caro --
  *     seleccion, matchName, cadena, buscar/insertar el componente) y
@@ -153,7 +161,7 @@ function selectLook(lookIndex) {
     num.classList.toggle("selected", Number(num.dataset.lookIndex) === lookIndex);
   });
   renderLookReadout();
-  applyCurrent();
+  applyCurrent({ only: "look" });
 }
 
 /* ---------------- Deslizadores (Intensity + Etapa 3) ---------------- */
@@ -168,7 +176,7 @@ function selectLook(lookIndex) {
  * `idPrefix` espera cuatro elementos en el DOM: `${idPrefix}Slider`,
  * `${idPrefix}Mask`, `${idPrefix}Thumb`, `${idPrefix}Value`.
  */
-function createSlider({ idPrefix, min, max, decimals, defaultValue, onCommit }) {
+function createSlider({ idPrefix, paramKey, min, max, decimals, defaultValue, onCommit }) {
   const el = document.getElementById(`${idPrefix}Slider`);
   const maskEl = document.getElementById(`${idPrefix}Mask`);
   const thumbEl = document.getElementById(`${idPrefix}Thumb`);
@@ -190,7 +198,11 @@ function createSlider({ idPrefix, min, max, decimals, defaultValue, onCommit }) 
   let livePending = false;
 
   function liveWriteNow() {
-    if (liveTarget && liveTarget.ok) writeParams(liveTarget);
+    // Solo este control, y en silencio: durante un arrastre no tiene
+    // sentido avisar por cada parametro que no se encontro.
+    if (liveTarget && liveTarget.ok) {
+      writeParams(liveTarget, { only: paramKey, silent: true });
+    }
   }
 
   function scheduleLiveWrite() {
@@ -308,11 +320,12 @@ function createSlider({ idPrefix, min, max, decimals, defaultValue, onCommit }) 
 
 const intensitySlider = createSlider({
   idPrefix: "intensity",
+  paramKey: "intensity",
   min: INTENSITY_MIN,
   max: INTENSITY_MAX,
   decimals: 1,
   defaultValue: kIntensityDefaultUi,
-  onCommit: () => applyCurrent(),
+  onCommit: () => applyCurrent({ only: "intensity" }),
 });
 
 // Etapa 3: un deslizador por entrada de BASIC, con el mismo idPrefix que la
@@ -321,11 +334,12 @@ const basicSliders = {};
 for (const [key, cfg] of Object.entries(BASIC)) {
   basicSliders[key] = createSlider({
     idPrefix: key,
+    paramKey: key,
     min: cfg.min,
     max: cfg.max,
     decimals: cfg.decimals,
     defaultValue: cfg.default,
-    onCommit: () => applyCurrent(),
+    onCommit: () => applyCurrent({ only: key }),
   });
 }
 
@@ -499,6 +513,11 @@ async function resolveTarget({ silent = false } = {}) {
 
   let targetIndex = await findExistingComponentIndex(chain, matchName);
 
+  // Si el efecto acaba de nacer en este clip, el panel ES la unica fuente
+  // de verdad y hay que volcarle TODOS sus valores. A partir de ahi manda
+  // el clip, y el panel solo escribe lo que el usuario mueva.
+  let inserted = false;
+
   // Si no esta aplicado todavia, insertarlo (transaccion 1). El
   // componente recien creado por VideoFilterFactory no expone
   // getParamCount/getParam hasta que se reinserta y se relee desde la
@@ -539,6 +558,7 @@ async function resolveTarget({ silent = false } = {}) {
       return { ok: false, reason: "insercion devolvio false" };
     }
     targetIndex = countBefore;
+    inserted = true;
   }
 
   let live;
@@ -560,7 +580,7 @@ async function resolveTarget({ silent = false } = {}) {
     return { ok: false, reason: "sin getParamCount" };
   }
 
-  return { ok: true, project, live };
+  return { ok: true, project, live, inserted };
 }
 
 /**
@@ -569,8 +589,25 @@ async function resolveTarget({ silent = false } = {}) {
  * executeTransaction -- es la que se llama repetidas veces por segundo
  * durante un arrastre en vivo.
  */
-function writeParams(target, { silent = false } = {}) {
+function writeParams(target, { only = null, silent = false } = {}) {
   const { project, live } = target;
+
+  // `only` = la clave del unico control que hay que escribir ("look",
+  // "intensity", o una clave de BASIC). null = escribirlos todos.
+  //
+  // POR QUE NO SE ESCRIBEN SIEMPRE TODOS.
+  //
+  // Antes si, y pisaba al usuario: ajustar Intensity en Controles de
+  // efectos y luego tocar cualquier cosa del panel devolvia Intensity al
+  // valor del slider del panel. Costo real -- durante la caza del banding
+  // creimos tener el efecto a Intensity 0 y el log demostro que corria a
+  // 100, porque el panel lo habia reescrito.
+  //
+  // Dos fuentes de verdad para un mismo parametro es el problema de fondo;
+  // escribir solo lo que el usuario acaba de mover lo evita sin tener que
+  // leer el estado del clip (que es la otra mitad, pendiente).
+  const wants = (key) => only === null || only === key;
+
   let ok = false;
   try {
     project.lockedAccess(() => {
@@ -592,21 +629,25 @@ function writeParams(target, { silent = false } = {}) {
           }
         }
 
-        if (lookParam) {
-          // El popup "Look" es base-1 en After Effects (PF_ADD_POPUP),
-          // pero Premiere interpreta el valor del ComponentParam como
-          // indice base-0 -- se resta 1 (hallazgo de la Etapa 1).
-          const kf = lookParam.createKeyframe(selectedLookIndex - 1);
-          compoundAction.addAction(lookParam.createSetValueAction(kf, true));
-        } else if (!silent) {
-          log(`No se encontro un parametro llamado "Look" entre ${count} parametros.`, "warn");
+        if (wants("look")) {
+          if (lookParam) {
+            // El popup "Look" es base-1 en After Effects (PF_ADD_POPUP),
+            // pero Premiere interpreta el valor del ComponentParam como
+            // indice base-0 -- se resta 1 (hallazgo de la Etapa 1).
+            const kf = lookParam.createKeyframe(selectedLookIndex - 1);
+            compoundAction.addAction(lookParam.createSetValueAction(kf, true));
+          } else if (!silent) {
+            log(`No se encontro un parametro llamado "Look" entre ${count} parametros.`, "warn");
+          }
         }
 
-        if (intensityParam) {
-          const kf = intensityParam.createKeyframe(intensitySlider.value);
-          compoundAction.addAction(intensityParam.createSetValueAction(kf, true));
-        } else if (!silent) {
-          log(`No se encontro un parametro llamado "Intensity" entre ${count} parametros.`, "warn");
+        if (wants("intensity")) {
+          if (intensityParam) {
+            const kf = intensityParam.createKeyframe(intensitySlider.value);
+            compoundAction.addAction(intensityParam.createSetValueAction(kf, true));
+          } else if (!silent) {
+            log(`No se encontro un parametro llamado "Intensity" entre ${count} parametros.`, "warn");
+          }
         }
 
         // Si el .aex instalado todavia es el de la Etapa 2, estos cinco
@@ -614,6 +655,7 @@ function writeParams(target, { silent = false } = {}) {
         // para no llenar el log mientras se arrastra) y el resto del
         // panel (Look/Intensity/Split Tone) sigue funcionando igual.
         for (const [key, cfg] of Object.entries(BASIC)) {
+          if (!wants(key)) continue;
           const param = basicParams[key];
           if (!param) {
             if (!silent) log(`No se encontro un parametro llamado "${cfg.displayName}" entre ${count} parametros.`, "warn");
@@ -642,7 +684,7 @@ let applying = false;
  * slider -- en todos esos casos vale la pena pagar el costo de
  * resolveTarget() porque no se repite docenas de veces por segundo.
  */
-async function applyCurrent() {
+async function applyCurrent({ only = null } = {}) {
   if (applying) return; // evita solapar transacciones si el usuario encadena clics/arrastres
   applying = true;
   btnApply.disabled = true;
@@ -650,7 +692,10 @@ async function applyCurrent() {
     const target = await resolveTarget();
     if (!target.ok) return; // resolveTarget() ya puso el status/log correspondiente
 
-    const ok = writeParams(target);
+    // Si el efecto acaba de insertarse en este clip, se vuelcan todos los
+    // valores del panel; si ya estaba, solo el control que el usuario
+    // movio (ver la nota de writeParams).
+    const ok = writeParams(target, { only: target.inserted ? null : only });
     if (ok) {
       const name = LOOKS[selectedLookIndex - 1]?.name ?? selectedLookIndex;
       setStatus(`${name} · Intensity ${intensitySlider.value.toFixed(1)}`, "ok");
