@@ -369,6 +369,33 @@ const intensitySlider = createSlider({
  * "Blend" -- se quedan en Controles de efectos hasta verificar como expone
  * Premiere esos tipos a UXP.
  */
+// Mismo orden que kBlendChoices en ae/ColorLabAE.h -- CONGELADO alli, porque
+// el host guarda el popup por indice. En Premiere el indice es base-0.
+const BLEND_MODES = ["Screen", "Add", "Subtract", "Multiply", "Overlay", "Soft Light", "Hard Light", "Lighten", "Normal"];
+
+// Tintes de partida para Bloom. El primero es el defecto del efecto.
+const COLOR_PRESETS = [
+  { r: 255, g: 140, b: 77  },
+  { r: 255, g: 255, b: 255 },
+  { r: 255, g: 200, b: 120 },
+  { r: 255, g: 90,  b: 70  },
+  { r: 255, g: 120, b: 180 },
+  { r: 120, g: 200, b: 255 },
+  { r: 120, g: 255, b: 190 },
+];
+
+function colorToHex(c) {
+  const h = (n) => Math.max(0, Math.min(255, Math.round(n))).toString(16).padStart(2, "0");
+  return `#${h(c.r)}${h(c.g)}${h(c.b)}`.toUpperCase();
+}
+function hexToColor(str) {
+  const m = /^#?([0-9a-f]{6})$/i.exec(String(str).trim());
+  if (!m) return null;
+  const n = parseInt(m[1], 16);
+  return { r: (n >> 16) & 255, g: (n >> 8) & 255, b: n & 255 };
+}
+function sameColor(a, b) { return a && b && a.r === b.r && a.g === b.g && a.b === b.b; }
+
 const SECTIONS = [
   {
     id: "split", title: "Split Tone", enable: "Enable Split Tone",
@@ -386,6 +413,8 @@ const SECTIONS = [
       { key: "bloom.amount",    name: "Amount",    label: "Amount",    kind: "float", min: 0,   max: 100, dec: 1, def: 35 },
       { key: "bloom.size",      name: "Size",      label: "Size",      kind: "float", min: 0.1, max: 10,  dec: 2, def: 1.5 },
       { key: "bloom.threshold", name: "Threshold", label: "Threshold", kind: "float", min: 0,   max: 100, dec: 1, def: 65 },
+      { key: "bloom.color",     name: "Color",     label: "Color",     kind: "color", def: { r: 255, g: 140, b: 77 } },
+      { key: "bloom.blend",     name: "Blend",     label: "Blend",     kind: "choice", options: BLEND_MODES, def: 0 },
     ],
   },
   {
@@ -526,6 +555,77 @@ function buildSections() {
         controlUi[c.key] = {
           get value() { return sw.value; },
           set value(v) { sw.value = v; },
+        };
+      } else if (c.kind === "choice") {
+        const row = makeEl("div", "control-row");
+        const lab = makeEl("label");
+        lab.textContent = c.label;
+        row.appendChild(lab);
+        body.appendChild(row);
+        const chips = makeEl("div", "chips");
+        let current = c.def;
+        const els = c.options.map((label, idx) => {
+          const chip = makeEl("div", "chip", { role: "button", tabindex: "0" });
+          chip.textContent = label;
+          const pick = () => { current = idx; paint(); applyCurrent({ only: c.key }); };
+          chip.addEventListener("click", pick);
+          chip.addEventListener("keydown", (ev) => {
+            if (ev.key === "Enter" || ev.key === " ") { ev.preventDefault(); pick(); }
+          });
+          chips.appendChild(chip);
+          return chip;
+        });
+        const paint = () => els.forEach((e, i) => e.classList.toggle("selected", i === current));
+        paint();
+        body.appendChild(chips);
+        controlUi[c.key] = {
+          get value() { return current; },
+          set value(v) { current = Math.max(0, Math.min(c.options.length - 1, Math.round(v))); paint(); },
+        };
+      } else if (c.kind === "color") {
+        const row = makeEl("div", "control-row");
+        const lab = makeEl("label");
+        lab.textContent = c.label;
+        const hex = makeEl("span", "slider-value", { tabindex: "0", title: "Haz clic para escribir un color (#RRGGBB)" });
+        row.appendChild(lab);
+        row.appendChild(hex);
+        body.appendChild(row);
+        const sw = makeEl("div", "swatches");
+        let current = { ...c.def };
+        const chips = COLOR_PRESETS.map((col) => {
+          const el = makeEl("div", "swatch", { role: "button", tabindex: "0", title: colorToHex(col) });
+          el.style.backgroundColor = colorToHex(col);
+          const pick = () => { current = { ...col }; paint(); applyCurrent({ only: c.key }); };
+          el.addEventListener("click", pick);
+          el.addEventListener("keydown", (ev) => {
+            if (ev.key === "Enter" || ev.key === " ") { ev.preventDefault(); pick(); }
+          });
+          sw.appendChild(el);
+          return { el, col };
+        });
+        const paint = () => {
+          hex.textContent = colorToHex(current);
+          chips.forEach(({ el, col }) => el.classList.toggle("selected", sameColor(col, current)));
+        };
+        paint();
+        body.appendChild(sw);
+        hex.addEventListener("click", () => {
+          hex.contentEditable = "true";
+          hex.focus();
+          document.execCommand && document.execCommand("selectAll", false, null);
+        });
+        hex.addEventListener("blur", () => {
+          hex.contentEditable = "false";
+          const parsed = hexToColor(hex.textContent);
+          if (parsed) { current = parsed; paint(); applyCurrent({ only: c.key }); } else { paint(); }
+        });
+        hex.addEventListener("keydown", (ev) => {
+          if (ev.key === "Enter") { ev.preventDefault(); hex.blur(); }
+          else if (ev.key === "Escape") { ev.preventDefault(); paint(); hex.contentEditable = "false"; hex.blur(); }
+        });
+        controlUi[c.key] = {
+          get value() { return current; },
+          set value(v) { current = { r: v.r, g: v.g, b: v.b }; paint(); },
         };
       } else {
         const row = makeEl("div", "control-row");
@@ -845,7 +945,34 @@ function indexParams(live) {
 
 /// Crea el fotograma clave. Las casillas se intentan primero como booleano;
 /// si el runtime no lo acepta, como 0/1 (no esta verificado cual quiere).
+let colorFormLogged = false;
+function makePremiereColor(c) {
+  const P = premierepro;
+  const r = c.r / 255, g = c.g / 255, b = c.b / 255;
+  // Lo documentado en el foro de Adobe: new Color(r, g, b, a) con 0..1.
+  try {
+    if (typeof P.Color === "function") return new P.Color(r, g, b, 1);
+  } catch (e) {
+    if (!colorFormLogged) log(`new Color(r,g,b,a) fallo: ${e}`, "warn");
+  }
+  for (const fn of ["createFromRGBA", "fromRGBA", "create"]) {
+    try {
+      if (typeof P.Color?.[fn] === "function") return P.Color[fn](r, g, b, 1);
+    } catch {}
+  }
+  return null;
+}
+
 function makeKeyframe(param, control, value) {
+  if (control.kind === "color") {
+    const col = makePremiereColor(value);
+    if (!col) {
+      log("No se pudo construir un Color de Premiere: no se escribe el color.", "error");
+      return null;
+    }
+    return param.createKeyframe(col);
+  }
+  if (control.kind === "choice") return param.createKeyframe(value);   // base-0, como Look
   if (control.kind !== "bool") return param.createKeyframe(value);
   try {
     return param.createKeyframe(!!value);
@@ -1048,6 +1175,41 @@ async function readParamValue(param, tickTimes) {
   return null;
 }
 
+/// Saca {r,g,b} 0..255 de lo que devuelva el runtime para un Color. La forma
+/// exacta no esta verificada: se aceptan r/g/b, red/green/blue o un array, en
+/// 0..1 o en 0..255.
+let colorShapeLogged = false;
+function parseColor(raw) {
+  if (raw === null || raw === undefined) return null;
+  let r, g, b;
+  if (Array.isArray(raw)) { [r, g, b] = raw; }
+  else if (typeof raw === "object") {
+    r = raw.r ?? raw.red ?? raw.R;
+    g = raw.g ?? raw.green ?? raw.G;
+    b = raw.b ?? raw.blue ?? raw.B;
+  }
+  if (![r, g, b].every((n) => typeof n === "number" && Number.isFinite(n))) return null;
+  const k = (r <= 1.0001 && g <= 1.0001 && b <= 1.0001) ? 255 : 1;
+  return { r: Math.round(r * k), g: Math.round(g * k), b: Math.round(b * k) };
+}
+
+async function readColorValue(param) {
+  if (typeof param?.getValueAtTime !== "function" || !cachedTickTime) return null;
+  try {
+    const raw = await param.getValueAtTime(cachedTickTime.t);
+    const col = parseColor(raw);
+    if (!col && !colorShapeLogged) {
+      colorShapeLogged = true;
+      let desc;
+      try { desc = JSON.stringify(raw); } catch { desc = String(raw); }
+      log(`El color leido no tiene forma r/g/b conocida (${typeof raw}: ${desc}); el color no se sincroniza desde el clip.`, "warn");
+    }
+    return col;
+  } catch {
+    return null;
+  }
+}
+
 /** Lee del clip todo lo que el panel controla. */
 async function readParamsFromClip(target, sequence) {
   const { live } = target;
@@ -1076,9 +1238,14 @@ async function readParamsFromClip(target, sequence) {
   await Promise.all(ALL_CONTROLS.map(async (c) => {
     const p = map[c.key];
     if (!p) return;
+    if (c.kind === "color") {
+      const col = await readColorValue(p);
+      if (col) out[c.key] = col;
+      return;
+    }
     const v = await readParamValue(p, tickTimes);
     if (v === null) return;
-    out[c.key] = c.kind === "bool" ? v >= 0.5 : v;
+    out[c.key] = c.kind === "bool" ? v >= 0.5 : c.kind === "choice" ? Math.round(v) : v;
   }));
 
   // El primer sondeo ya dejo escrito en el log todo lo que hizo falta
@@ -1160,6 +1327,10 @@ async function syncFromClip() {
       if (v === undefined || !ui) continue;
       if (c.kind === "bool") {
         if (!!v !== ui.value) { ui.value = v; changed = true; }
+      } else if (c.kind === "choice") {
+        if (v !== ui.value) { ui.value = v; changed = true; }
+      } else if (c.kind === "color") {
+        if (!sameColor(v, ui.value)) { ui.value = v; changed = true; }
       } else {
         const tol = 0.5 * Math.pow(10, -c.dec);
         if (Math.abs(v - ui.value) > tol) { ui.value = v; changed = true; }

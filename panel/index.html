@@ -254,6 +254,32 @@
   .tool:not(.on) .tool-body .control-row,
   .tool:not(.on) .tool-body .slider { opacity: 0.45; }
   .tool-body .control-row { margin-top: 8px; margin-bottom: 4px; }
+  .chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 4px; }
+  .chip {
+    padding: 5px 9px;
+    border-radius: 8px;
+    border: 1px solid rgba(255,255,255,0.18);
+    color: #b8babf;
+    font-size: 11px;
+    cursor: pointer;
+    user-select: none;
+    -webkit-user-select: none;
+  }
+  .chip:hover { border-color: #4a6cf0; color: #ffffff; }
+  .chip.selected { background-color: #ffffff; border-color: #ffffff; color: #001b33; font-weight: 500; }
+  .swatches { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 4px; }
+  .swatch {
+    width: 22px;
+    height: 22px;
+    border-radius: 50%;
+    border: 2px solid rgba(255,255,255,0.18);
+    cursor: pointer;
+  }
+  .swatch:hover { border-color: #4a6cf0; }
+  .swatch.selected { border-color: #ffffff; }
+  .chip:focus-visible, .swatch:focus-visible { outline: 2px solid #4a6cf0; outline-offset: 1px; }
+  .tool:not(.on) .tool-body .chips,
+  .tool:not(.on) .tool-body .swatches { opacity: 0.45; }
   .check-row {
     display: flex;
     align-items: center;
