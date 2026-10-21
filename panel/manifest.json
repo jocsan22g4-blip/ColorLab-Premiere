@@ -19,8 +19,8 @@
         "default": "Color Lab para Premiere: Looks, Intensity, Split Tone, Bloom, Halation y Film Grain sobre el clip seleccionado."
       },
       "minimumSize": {
-        "width": 280,
-        "height": 340
+        "width": 320,
+        "height": 600
       },
       "preferredDockedSize": {
         "width": 340,
