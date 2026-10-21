@@ -40,7 +40,7 @@
     top: 0;
     left: 0;
     right: 0;
-    bottom: 0;
+    bottom: 34px;   /* deja sitio a la firma, fija abajo */
     overflow-y: auto;
     overflow-x: hidden;
     padding: 16px;
@@ -326,6 +326,37 @@
 
   /* Aplicar / Restaurar: <div role="button"> por la misma razon que los
      numeros de Look (este runtime pinta <button> con el aspecto del SO). */
+  /* Firma de la marca madre. Fija al pie del panel (fuera del area que se
+     desplaza) para que este siempre a la vista pero sin competir: "by:" en
+     mono diminuto (el sistema), "jocsankleyver" en serif minusculas, gris
+     claro (el logotipo de la marca madre). La fuente serif no se empaqueta:
+     si "Cormorant Garamond"/"Playfair Display" no estan instaladas cae a
+     Georgia. */
+  #signature {
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    height: 34px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    pointer-events: none;
+  }
+  #signature .by {
+    font-family: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, monospace;
+    font-size: 9px;
+    letter-spacing: 0.1em;
+    color: #6d7076;
+    margin-right: 6px;
+  }
+  #signature .jk {
+    font-family: "Cormorant Garamond", "Playfair Display", Georgia, "Times New Roman", serif;
+    font-size: 14px;
+    letter-spacing: 0.02em;
+    color: #b8babf;
+  }
+
   .btn-row { display: flex; gap: 8px; margin-top: 4px; }
   .btn {
     flex: 1 1 0;
@@ -452,6 +483,8 @@
   </section>
 
   </div>
+
+  <div id="signature"><span class="by">by:</span><span class="jk">jocsankleyver</span></div>
 
   <script src="./main.js"></script>
 </body>
