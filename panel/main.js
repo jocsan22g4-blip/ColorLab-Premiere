@@ -10,9 +10,8 @@
  * que se traba al arrastrar en este runtime.
  *
  * Novedades de la Etapa 2:
- *   - Navegador de Looks con miniaturas (panel/assets/looks/look_XX.jpg,
- *     generadas a partir de los .cube de ColorLab-3/looks sobre una imagen
- *     de referencia sintetica -- no hay footage de muestra en el repo).
+ *   - Navegador de Looks: tira de numeros (sin miniaturas, por preferencia
+ *     explicita de diseno) con el nombre del Look seleccionado debajo.
  *   - Deslizador de Intensity construido a mano (HTML/CSS + Pointer Events),
  *     sin <input type="range">.
  *   - Reaplicar Look/Intensity ya NO apila una instancia nueva del efecto
@@ -50,12 +49,14 @@ const kIntensityDefaultUi = 100.0; // igual a kIntensityDefault en ae/ColorLabAE
 
 const logEl = document.getElementById("log");
 const statusEl = document.getElementById("status");
-const lookGridEl = document.getElementById("lookGrid");
+const lookStripEl = document.getElementById("lookStrip");
+const lookIndexLabelEl = document.getElementById("lookIndexLabel");
+const lookNameLabelEl = document.getElementById("lookNameLabel");
 const btnDiagnose = document.getElementById("btnDiagnose");
 const btnApply = document.getElementById("btnApply");
 
 const sliderEl = document.getElementById("intensitySlider");
-const sliderFillEl = document.getElementById("intensityFill");
+const sliderMaskEl = document.getElementById("intensityMask");
 const sliderThumbEl = document.getElementById("intensityThumb");
 const intensityValueEl = document.getElementById("intensityValue");
 
@@ -81,67 +82,38 @@ function setStatus(msg, level = "info") {
   statusEl.className = level === "error" ? "error" : level === "warn" ? "warn" : level === "ok" ? "ok" : "";
 }
 
-/* ---------------- Navegador de Looks ---------------- */
+/* ---------------- Navegador de Looks (tira de numeros) ---------------- */
 
-function buildLookGrid() {
-  lookGridEl.innerHTML = "";
-  let thumbsOk = 0;
-  let thumbsFailed = 0;
-
+function buildLookStrip() {
+  lookStripEl.innerHTML = "";
   LOOKS.forEach((look, i) => {
     const lookIndex = i + 1; // 1-based, igual que el popup de AE
-    const card = document.createElement("button");
-    card.type = "button";
-    card.className = "look-card";
-    card.dataset.lookIndex = String(lookIndex);
-    if (lookIndex === selectedLookIndex) card.classList.add("selected");
-
-    const thumb = document.createElement("div");
-    thumb.className = "look-thumb";
-
-    const label = document.createElement("span");
-    label.className = "look-name";
-    label.textContent = look.name;
-
-    card.appendChild(thumb);
-    card.appendChild(label);
-    // El listener va en el boton completo (no en la miniatura), asi que
-    // funciona incluso si la imagen de fondo nunca cargo.
-    card.addEventListener("click", () => selectLook(lookIndex));
-    lookGridEl.appendChild(card);
-
-    // Precarga la miniatura con un Image() aparte en vez de depender de un
-    // <img> en el DOM: asi se puede loguear explicitamente si una
-    // miniatura no cargo, en vez de quedar en silencio con una caja vacia.
-    const src = `./assets/looks/${look.id}.jpg`;
-    const pre = new Image();
-    pre.onload = () => {
-      thumb.style.backgroundImage = `url("${src}")`;
-      thumbsOk++;
-    };
-    pre.onerror = () => {
-      thumbsFailed++;
-      log(`No se pudo cargar la miniatura de "${look.name}" (${src}).`, "warn");
-    };
-    pre.src = src;
+    const num = document.createElement("button");
+    num.type = "button";
+    num.className = "look-num";
+    num.dataset.lookIndex = String(lookIndex);
+    num.textContent = String(lookIndex).padStart(2, "0");
+    num.title = look.name;
+    if (lookIndex === selectedLookIndex) num.classList.add("selected");
+    num.addEventListener("click", () => selectLook(lookIndex));
+    lookStripEl.appendChild(num);
   });
+  log(`Tira de Looks construida: ${LOOKS.length} opciones.`);
+  renderLookReadout();
+}
 
-  log(`Grilla de Looks construida: ${LOOKS.length} tarjetas.`);
-  // Da tiempo a que las cargas de imagen (sincronas desde el propio
-  // paquete del panel) terminen antes de resumir.
-  setTimeout(() => {
-    if (thumbsFailed > 0) {
-      log(`${thumbsOk} miniaturas cargaron, ${thumbsFailed} fallaron -- revisa que panel/assets/looks este junto a index.html.`, "warn");
-    }
-  }, 500);
+function renderLookReadout() {
+  lookIndexLabelEl.textContent = String(selectedLookIndex).padStart(2, "0");
+  lookNameLabelEl.textContent = LOOKS[selectedLookIndex - 1]?.name ?? "";
 }
 
 function selectLook(lookIndex) {
   if (lookIndex === selectedLookIndex) return;
   selectedLookIndex = lookIndex;
-  [...lookGridEl.children].forEach((card) => {
-    card.classList.toggle("selected", Number(card.dataset.lookIndex) === lookIndex);
+  [...lookStripEl.children].forEach((num) => {
+    num.classList.toggle("selected", Number(num.dataset.lookIndex) === lookIndex);
   });
+  renderLookReadout();
   applyCurrent();
 }
 
@@ -149,7 +121,9 @@ function selectLook(lookIndex) {
 
 function renderIntensityUi() {
   const pct = ((intensityValue - INTENSITY_MIN) / (INTENSITY_MAX - INTENSITY_MIN)) * 100;
-  sliderFillEl.style.width = `${pct}%`;
+  // El track muestra siempre el degrade completo de marca; la mascara
+  // oscura cubre la parte todavia no "revelada" a la derecha del thumb.
+  sliderMaskEl.style.width = `${100 - pct}%`;
   sliderThumbEl.style.left = `${pct}%`;
   intensityValueEl.textContent = intensityValue.toFixed(1);
 }
@@ -494,9 +468,9 @@ btnDiagnose.addEventListener("click", async () => {
 });
 
 try {
-  buildLookGrid();
+  buildLookStrip();
 } catch (e) {
-  log(`buildLookGrid() fallo: ${e}`, "error");
+  log(`buildLookStrip() fallo: ${e}`, "error");
 }
 renderIntensityUi();
 log("Panel cargado. Selecciona un Look o ajusta Intensity para aplicarlos al clip seleccionado.");

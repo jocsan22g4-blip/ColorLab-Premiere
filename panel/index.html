@@ -5,32 +5,22 @@
 <title>Color Lab</title>
 <style>
   /*
-   * Tokens del sistema de marca de Color Lab (tomados del artifact de
-   * identidad visual, variante "primera" -- no la aguamarina):
-   *   #000000  vacio / lienzo
-   *   #0f0f10  obsidiana / tarjeta
-   *   #1c1d1f  carbon / controles
-   *   #001b33  marino -- asignado en el sistema como "panel del plug-in"
-   *   #4a6cf0  senal -- unico acento cromatico
-   *   #f0cca4  arena -- acento calido, labels tecnicos
-   *   #ffffff  blanco -- "la accion" (color de los botones primarios)
-   *   #b8babf  niebla -- texto de apoyo
-   *   #888b91  ceniza -- texto terciario
-   * Tipografia: Inter (UI) + JetBrains Mono (labels tecnicos, mayusculas,
-   * tracking ancho). Sin bundlear los webfonts (este runtime de UXP no es
-   * confiable con red ni con CSS moderno -- ver notas en TESTING.md): se
-   * listan como preferencia y cae a la fuente del sistema si no estan
-   * instaladas, que ya es visualmente muy cercana.
+   * Tokens del sistema de marca de Color Lab (variante original, no la
+   * aguamarina):
+   *   #000000  vacio / lienzo        #0f0f10  obsidiana / tarjeta
+   *   #1c1d1f  carbon / controles    #001b33  marino -- "panel del plug-in"
+   *   #4a6cf0  senal -- acento       #f0cca4  arena -- acento calido
+   *   #ffffff  blanco -- "la accion" #b8babf  niebla -- texto de apoyo
+   *   #888b91  ceniza -- terciario
+   * Tipografia: Inter (UI) + JetBrains Mono (labels tecnicos). Sin
+   * bundlear webfonts: cae a la fuente del sistema si no estan instaladas.
    */
   :root { color-scheme: dark; }
   * { box-sizing: border-box; }
-  /* Este runtime de UXP aplica el estilo NATIVO del boton (una pildora gris
-     del SO) a cualquier <button>, incluso con background/border propios --
-     a diferencia de un navegador normal, donde declarar background-color ya
-     desactiva la apariencia nativa. Sin "appearance: none" explicito, las
-     tarjetas de Look (son <button>) y los botones quedaban todos como
-     pildoras grises del sistema, con el contenido interno (la miniatura)
-     invisible. Hallazgo en vivo, probando en Premiere real. */
+  /* Este runtime de UXP aplica el estilo NATIVO del boton (pildora gris
+     del SO) a cualquier <button> salvo que se pida "appearance: none"
+     explicitamente -- a diferencia de un navegador normal. Hallazgo en
+     vivo, probando en Premiere real. */
   button {
     appearance: none;
     -webkit-appearance: none;
@@ -41,17 +31,22 @@
   }
   body {
     margin: 0;
-    padding: 14px;
+    padding: 16px;
     font-family: "Inter", -apple-system, "Segoe UI", "Helvetica Neue", Arial, sans-serif;
     font-size: 12px;
-    background: #001b33;
+    /* Negro -> el acento cromatico unico de la marca (#4a6cf0 "Senal"),
+       oscuro de principio a fin (texto blanco sigue legible). */
+    background: linear-gradient(160deg, #000000 0%, #0a1430 40%, #1c3a7a 100%);
+    background-attachment: fixed;
     color: #ffffff;
   }
   .brand {
     display: flex;
     align-items: center;
     gap: 8px;
-    margin: 0 0 14px 0;
+    padding-bottom: 14px;
+    border-bottom: 1px solid rgba(255,255,255,0.1);
+    margin-bottom: 18px;
   }
   .brand img {
     height: 18px;
@@ -65,82 +60,84 @@
   .brand .wordmark b { font-weight: 700; }
   .brand .wordmark span { font-weight: 300; color: #b8babf; }
 
+  section + section {
+    margin-top: 22px;
+    padding-top: 18px;
+    border-top: 1px solid rgba(255,255,255,0.08);
+  }
   .section-label {
     font-family: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, monospace;
-    color: #f0cca4;
+    color: #888b91;
     font-size: 10px;
     text-transform: uppercase;
     letter-spacing: 0.18em;
-    margin: 14px 0 8px 0;
+    margin: 0 0 12px 0;
   }
 
-  /* --- Navegador de Looks ---
-     Deliberadamente SIN "display:grid" ni "aspect-ratio": en este runtime
-     de UXP ya vimos que no se puede asumir soporte moderno de CSS (el
-     <input type="range"> nativo se trababa al arrastrarlo -- ver main.js).
-     Flexbox + el truco clasico de "padding-top" para una caja 16:9, y la
-     miniatura como background-image (no <img>, para no depender de como
-     este runtime calcula el tamano intrinseco de una imagen) son soporte
-     universal, incluso en motores viejos. */
-  #lookGrid {
+  /* --- Navegador de Looks: tira de numeros, sin miniaturas ---
+     Flexbox + scroll horizontal; nada de CSS Grid ni aspect-ratio (este
+     runtime de UXP no soporta bien CSS moderno -- ver notas abajo). */
+  #lookStrip {
     display: flex;
-    flex-wrap: wrap;
-    justify-content: space-between;
+    gap: 8px;
+    overflow-x: auto;
+    padding-bottom: 2px;
   }
-  .look-card {
-    position: relative;
-    display: block;
-    width: 31.5%;
-    margin-bottom: 8px;
-    border: 2px solid transparent;
-    border-radius: 8px;
-    overflow: hidden;
-    cursor: pointer;
-    background: #1c1d1f;
-    padding: 0;
-    text-align: left;
-  }
-  .look-card .look-thumb {
-    width: 100%;
-    padding-top: 56.25%; /* caja 16:9 sin usar aspect-ratio */
-    position: relative;
-    background-color: #0f0f10;
-    background-size: cover;
-    background-position: center;
-    pointer-events: none;
-  }
-  .look-card .look-name {
-    display: block;
-    font-size: 9.5px;
-    line-height: 1.6;
-    padding: 3px 5px;
+  .look-num {
+    flex: 0 0 auto;
+    width: 36px;
+    height: 36px;
+    border-radius: 10px;
+    background: transparent;
+    box-shadow: inset 0 0 0 1px rgba(255,255,255,0.18);
     color: #b8babf;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    background: #0f0f10;
-    pointer-events: none;
-  }
-  .look-card:hover { border-color: #3a4a66; }
-  .look-card:hover .look-name { color: #ffffff; }
-  .look-card.selected { border-color: #4a6cf0; }
-  .look-card.selected .look-name { color: #ffffff; background: #15294a; }
-  .look-card:focus-visible { outline: 2px solid #4a6cf0; outline-offset: 1px; }
-
-  /* --- Deslizador de Intensity (construido a mano: el <input type="range">
-         nativo se traba al arrastrarlo en este runtime de UXP) --- */
-  .intensity-row {
+    font-family: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, monospace;
+    font-size: 13px;
     display: flex;
     align-items: center;
+    justify-content: center;
+    cursor: pointer;
+  }
+  .look-num:hover { box-shadow: inset 0 0 0 1px #4a6cf0; color: #ffffff; }
+  .look-num.selected {
+    background: #4a6cf0;
+    box-shadow: none;
+    color: #ffffff;
+    font-weight: 500;
+  }
+  .look-num:focus-visible { outline: 2px solid #4a6cf0; outline-offset: 1px; }
+
+  #lookReadout {
+    margin-top: 14px;
+    font-size: 21px;
+    font-weight: 600;
+    letter-spacing: -0.4px;
+  }
+  #lookReadout .idx { color: #4a6cf0; font-family: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, monospace; font-size: 14px; font-weight: 500; margin-right: 8px; }
+
+  /* --- Deslizador de Intensity (construido a mano: el <input type="range">
+     nativo se traba al arrastrarlo en este runtime de UXP). Track fino con
+     degrade de marca (senal -> arena); una mascara oscura cubre la parte
+     todavia no "revelada" a la derecha del thumb. --- */
+  .control-row {
+    display: flex;
+    align-items: baseline;
     justify-content: space-between;
-    margin-bottom: 8px;
+    margin-bottom: 10px;
+  }
+  .control-row label {
+    font-family: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, monospace;
+    font-size: 10px;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: #888b91;
   }
   .intensity-value {
     font-family: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, monospace;
     font-variant-numeric: tabular-nums;
     color: #ffffff;
-    font-size: 12px;
-    min-width: 34px;
+    font-size: 13px;
+    min-width: 30px;
     text-align: right;
     cursor: text;
     border-bottom: 1px dashed transparent;
@@ -152,7 +149,7 @@
   }
   #intensitySlider {
     position: relative;
-    height: 22px;
+    height: 20px;
     display: flex;
     align-items: center;
     cursor: pointer;
@@ -162,35 +159,33 @@
     position: absolute;
     left: 0;
     right: 0;
-    height: 4px;
+    height: 2px;
     border-radius: 2px;
-    background: #1c1d1f;
-    box-shadow: inset 0 0 0 1px rgba(255,255,255,0.1);
+    background: linear-gradient(90deg, #203252 0%, #4a6cf0 55%, #f0cca4 100%);
   }
-  #intensitySlider .fill {
+  #intensitySlider .mask {
     position: absolute;
-    left: 0;
-    height: 4px;
-    border-radius: 2px;
-    background: #4a6cf0;
-    width: 100%;
+    right: 0;
+    height: 2px;
+    border-radius: 0 2px 2px 0;
+    background: #16233a;
+    width: 0%;
   }
   #intensitySlider .thumb {
     position: absolute;
-    width: 14px;
-    height: 14px;
+    width: 16px;
+    height: 16px;
     border-radius: 50%;
     background: #ffffff;
-    border: 2px solid #4a6cf0;
     left: 100%;
     transform: translateX(-50%);
-    box-shadow: 0 1px 3px rgba(0,0,0,0.5);
+    box-shadow: 0 1px 4px rgba(0,0,0,0.6);
   }
   #intensitySlider.dragging .thumb { background: #dfe6ff; }
 
   button {
     width: 100%;
-    padding: 8px 0;
+    padding: 9px 0;
     margin-top: 4px;
     border: 0;
     border-radius: 9px;
@@ -209,11 +204,12 @@
     color: #b8babf;
     box-shadow: none;
     font-weight: 400;
+    padding: 6px 0;
   }
-  button.subtle:hover { background: #0f0f10; color: #ffffff; }
+  button.subtle:hover { color: #ffffff; }
 
   #status {
-    margin-top: 8px;
+    margin-top: 10px;
     font-size: 10.5px;
     color: #888b91;
     min-height: 13px;
@@ -222,7 +218,6 @@
   #status.warn { color: #f0cca4; }
   #status.ok { color: #ffffff; }
 
-  details#diagnostics { margin-top: 12px; }
   details#diagnostics summary {
     cursor: pointer;
     font-family: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, monospace;
@@ -252,29 +247,36 @@
     <span class="wordmark"><b>Color</b><span>Lab</span></span>
   </div>
 
-  <div class="section-label">Look</div>
-  <div id="lookGrid"></div>
+  <section>
+    <div class="section-label">Look</div>
+    <div id="lookStrip"></div>
+    <div id="lookReadout"><span class="idx" id="lookIndexLabel">01</span><span id="lookNameLabel">Nature</span></div>
+  </section>
 
-  <div class="section-label">Intensity</div>
-  <div class="intensity-row">
-    <span></span>
-    <span class="intensity-value" id="intensityValue" tabindex="0" title="Haz clic para escribir un valor">100.0</span>
-  </div>
-  <div id="intensitySlider">
-    <div class="track"></div>
-    <div class="fill" id="intensityFill"></div>
-    <div class="thumb" id="intensityThumb"></div>
-  </div>
+  <section>
+    <div class="control-row">
+      <label for="intensitySlider">Intensity</label>
+      <span class="intensity-value" id="intensityValue" tabindex="0" title="Haz clic para escribir un valor">100.0</span>
+    </div>
+    <div id="intensitySlider">
+      <div class="track"></div>
+      <div class="mask" id="intensityMask"></div>
+      <div class="thumb" id="intensityThumb"></div>
+    </div>
+  </section>
 
-  <button id="btnApply" class="primary">Aplicar al clip seleccionado</button>
+  <section>
+    <button id="btnApply" class="primary">Aplicar al clip seleccionado</button>
+    <div id="status"></div>
+  </section>
 
-  <div id="status"></div>
-
-  <details id="diagnostics">
-    <summary>Diagnostico</summary>
-    <button id="btnDiagnose" class="subtle">Listar efectos y clip seleccionado</button>
-    <div id="log"></div>
-  </details>
+  <section>
+    <details id="diagnostics">
+      <summary>Diagnostico</summary>
+      <button id="btnDiagnose" class="subtle">Listar efectos y clip seleccionado</button>
+      <div id="log"></div>
+    </details>
+  </section>
 
   <script src="./main.js"></script>
 </body>
