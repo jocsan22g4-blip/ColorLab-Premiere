@@ -140,6 +140,10 @@ Lo que hay y como comprobarlo en Premiere real:
 - **View Bloom / View Halation:** muestran solo lo que cada capa aporta
   (sobre negro, con ganancia x3). Requiere que la seccion este activa y con
   Amount > 0. No existe en la edicion DEMO.
+- **Aplicar / Restaurar.** Aplicar vuelca los valores del panel al clip.
+  Restaurar **quita Color Lab del clip** (todas sus instancias) y deja el
+  panel en los valores por defecto; Cmd/Ctrl+Z lo trae de vuelta (confirmar
+  en Premiere real).
 - **Doble clic** en cualquier slider = valor por defecto. Clic en el numero
   = escribirlo a mano.
 - **Sincronizacion:** cambia entre un clip con Color Lab y otro sin el: el

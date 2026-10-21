@@ -32,6 +32,8 @@ Comportamiento a tener en cuenta:
   panel a los valores por defecto; tocar cualquier control lo inserta.
 - **Escribe solo lo que mueves.** Nunca reescribe los demas parametros, asi
   no pisa lo que hayas ajustado en Controles de efectos.
+- **Aplicar / Restaurar.** Restaurar quita Color Lab del clip y devuelve el
+  panel a los valores por defecto.
 - **Vista previa en vivo** mientras arrastras, y **doble clic** en un slider
   para volver a su valor por defecto.
 

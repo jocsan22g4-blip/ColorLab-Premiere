@@ -96,6 +96,15 @@ const lookIndexLabelEl = document.getElementById("lookIndexLabel");
 const lookNameLabelEl = document.getElementById("lookNameLabel");
 const btnDiagnose = document.getElementById("btnDiagnose");
 const btnApply = document.getElementById("btnApply");
+const btnRestore = document.getElementById("btnRestore");
+
+/// Aplicar y Restaurar son <div role="button">: no hay `disabled` nativo.
+function setButtonsBusy(busy) {
+  for (const b of [btnApply, btnRestore]) {
+    b.classList.toggle("disabled", busy);
+    b.setAttribute("aria-disabled", busy ? "true" : "false");
+  }
+}
 
 let selectedLookIndex = 1; // 1-based
 let cachedMatchName = null; // se resuelve una vez y se reutiliza
@@ -1372,7 +1381,7 @@ let applying = false;
 async function applyCurrent({ only = null } = {}) {
   if (applying) return; // evita solapar transacciones si el usuario encadena clics/arrastres
   applying = true;
-  btnApply.disabled = true;
+  setButtonsBusy(true);
   try {
     const target = await resolveTarget();
     if (!target.ok) return; // resolveTarget() ya puso el status/log correspondiente
@@ -1390,11 +1399,98 @@ async function applyCurrent({ only = null } = {}) {
     }
   } finally {
     applying = false;
-    btnApply.disabled = false;
+    setButtonsBusy(false);
   }
 }
 
-btnApply.addEventListener("click", () => applyCurrent());
+function onActivate(el, fn) {
+  el.addEventListener("click", fn);
+  el.addEventListener("keydown", (ev) => {
+    if (ev.key === "Enter" || ev.key === " ") { ev.preventDefault(); fn(); }
+  });
+}
+onActivate(btnApply, () => applyCurrent());
+
+/**
+ * RESTAURAR: quita Color Lab del clip seleccionado y deja el panel en sus
+ * valores por defecto. No es "volver los ajustes a su valor": el efecto
+ * desaparece de Controles de efectos, y Cmd/Ctrl+Z lo trae de vuelta.
+ *
+ * Quita TODAS las instancias de Color Lab del clip (versiones antiguas del
+ * panel apilaban una por cada clic en Aplicar, asi que puede haber varias).
+ */
+async function restoreClip() {
+  if (applying) return;
+  applying = true;
+  setButtonsBusy(true);
+  try {
+    const selected = await getSelectedVideoClip();
+    if (!selected.ok) {
+      setStatus("Selecciona un clip de video para restaurar.", "warn");
+      return;
+    }
+    const matchName = await findColorLabMatchName();
+    if (!matchName) {
+      setStatus("No se encontro el efecto Color Lab instalado en Premiere.", "error");
+      return;
+    }
+
+    let chain;
+    try {
+      chain = await selected.trackItem.getComponentChain();
+    } catch (e) {
+      log(`Restaurar: no se pudo leer la cadena de video: ${e}`, "error");
+      setStatus("No se pudo leer la cadena de video del clip.", "error");
+      return;
+    }
+
+    const found = [];
+    const count = chain.getComponentCount();
+    for (let i = 0; i < count; i++) {
+      try {
+        const comp = chain.getComponentAtIndex(i);
+        if (typeof comp?.getMatchName === "function" && (await comp.getMatchName()) === matchName) {
+          found.push(comp);
+        }
+      } catch {}
+    }
+
+    // Aunque no haya nada que quitar, el panel vuelve a los defectos.
+    if (found.length === 0) {
+      resetPanelToDefaults();
+      setStatus("Este clip no tiene Color Lab.", "info");
+      return;
+    }
+
+    lastWriteAt = Date.now();   // que el sondeo no relea a mitad de la transaccion
+    let ok = false;
+    try {
+      selected.project.lockedAccess(() => {
+        ok = selected.project.executeTransaction((compoundAction) => {
+          for (const comp of found) {
+            compoundAction.addAction(chain.createRemoveComponentAction(comp));
+          }
+        }, "Color Lab: restaurar");
+      });
+    } catch (e) {
+      log(`Restaurar: la transaccion fallo: ${e}`, "error");
+      setStatus("No se pudo quitar Color Lab del clip.", "error");
+      return;
+    }
+
+    if (ok) {
+      resetPanelToDefaults();
+      setStatus(found.length > 1 ? `Color Lab quitado del clip (${found.length} instancias).` : "Color Lab quitado del clip.", "ok");
+      log(`Restaurar: ${found.length} instancia(s) de Color Lab eliminada(s).`);
+    } else {
+      setStatus("executeTransaction() de restaurar devolvio false.", "error");
+    }
+  } finally {
+    applying = false;
+    setButtonsBusy(false);
+  }
+}
+onActivate(btnRestore, restoreClip);
 
 btnDiagnose.addEventListener("click", async () => {
   log("— Diagnostico —");
