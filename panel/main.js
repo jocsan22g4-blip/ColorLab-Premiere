@@ -102,6 +102,9 @@ const CAMERAS = [
   "Mavic Pro D-Log",
   "Apple Log",
   "Apple Log 2",
+  "Sony LC-709",
+  "Sony LC-709 A",
+  "Sony Cine+709",
 ];
 let selectedCameraIndex = 0; // 0 = None
 
