@@ -16,15 +16,19 @@
         "default": "Color Lab"
       },
       "description": {
-        "default": "Navegador de Looks con miniaturas y control de Intensity; aplica Color Lab al clip seleccionado. Sin identidad visual final ni perfiles de camara."
+        "default": "Color Lab para Premiere: Looks, Intensity, Split Tone, Bloom, Halation y Film Grain sobre el clip seleccionado."
       },
       "minimumSize": {
         "width": 280,
         "height": 340
       },
       "preferredDockedSize": {
-        "width": 320,
-        "height": 480
+        "width": 340,
+        "height": 780
+      },
+      "preferredFloatingSize": {
+        "width": 360,
+        "height": 780
       }
     }
   ]
