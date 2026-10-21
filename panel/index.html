@@ -34,9 +34,9 @@
     padding: 16px;
     font-family: "Inter", -apple-system, "Segoe UI", "Helvetica Neue", Arial, sans-serif;
     font-size: 12px;
-    /* Negro -> el acento cromatico unico de la marca (#4a6cf0 "Senal"),
-       oscuro de principio a fin (texto blanco sigue legible). */
-    background: linear-gradient(160deg, #000000 0%, #0a1430 40%, #1c3a7a 100%);
+    /* Escala de grises (22 oct): el degradado azul se confundia con el
+       color de los controles. El azul "Senal" se queda solo como acento. */
+    background: linear-gradient(160deg, #000000 0%, #121212 45%, #2b2b2b 100%);
     background-attachment: fixed;
     color: #ffffff;
   }
@@ -189,7 +189,7 @@
     right: 0;
     height: 2px;
     border-radius: 0 2px 2px 0;
-    background: #16233a;
+    background: #1b1b1d;
     width: 0%;
   }
   .slider .thumb {
@@ -208,24 +208,33 @@
   /* --- Secciones plegables: Split Tone, Bloom, Halation, Film Grain ---
      Cabecera = <div role="button"> (nunca <button>, ver arriba); el
      interruptor de activar es otro <div role="switch">. */
-  .tool { border-top: 1px solid rgba(255,255,255,0.08); }
+  /* Cada herramienta es una tarjeta: fondo apenas mas claro y borde de 1px.
+     Separa sin lineas gruesas. El titulo es el texto MAS GRANDE de la
+     tarjeta; las etiquetas de dentro son mono diminutas -- asi no compiten. */
+  .tool {
+    background-color: rgba(255,255,255,0.045);
+    border: 1px solid rgba(255,255,255,0.09);
+    border-radius: 14px;
+    margin-top: 10px;
+    padding: 0 14px;
+  }
   .tool-head {
     display: flex;
     align-items: center;
     justify-content: space-between;
-    padding: 11px 0;
+    padding: 14px 0;
     cursor: pointer;
     user-select: none;
     -webkit-user-select: none;
   }
   .tool-title {
-    font-family: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, monospace;
-    font-size: 10px;
-    letter-spacing: 0.18em;
-    text-transform: uppercase;
-    color: #b8babf;
+    font-family: "Inter", -apple-system, "Segoe UI", "Helvetica Neue", Arial, sans-serif;
+    font-size: 14px;
+    font-weight: 600;
+    letter-spacing: -0.1px;
+    color: #d9dadd;
   }
-  .tool-title .chev { display: inline-block; width: 12px; color: #888b91; }
+  .tool-title .chev { display: inline-block; width: 14px; color: #888b91; font-weight: 400; }
   .tool.on .tool-title { color: #ffffff; }
   .switch {
     width: 30px;
@@ -249,7 +258,7 @@
   .switch.on { background-color: #ffffff; border-color: #ffffff; }
   .switch.on .knob { left: 16px; background-color: #001b33; }
   .switch:focus-visible, .tool-head:focus-visible { outline: 2px solid #4a6cf0; outline-offset: 1px; }
-  .tool-body { padding: 2px 0 14px 0; }
+  .tool-body { padding: 0 0 16px 0; }
   .tool-body.hidden { display: none; }
   .tool:not(.on) .tool-body .control-row,
   .tool:not(.on) .tool-body .slider { opacity: 0.45; }
@@ -380,7 +389,7 @@
     </div>
   </section>
 
-  <section id="toolSections" style="padding-top:0"></section>
+  <section id="toolSections" style="padding-top:0;border-top:0;margin-top:14px"></section>
 
   <section>
     <button id="btnApply" class="primary">Aplicar al clip seleccionado</button>
