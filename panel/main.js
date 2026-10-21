@@ -1089,6 +1089,11 @@ function asNumber(v) {
   if (v && typeof v === "object") {
     const inner = v.value;
     if (typeof inner === "number" && Number.isFinite(inner)) return inner;
+    // LAS CASILLAS LLEGAN COMO {"value": true|false} (confirmado en el
+    // volcado crudo de Premiere 26.5.2, 21 oct): un objeto cuyo `value` es
+    // booleano. Sin esta linea se tomaban como "no se pudo leer" y el panel
+    // se quedaba con el estado del clip anterior.
+    if (typeof inner === "boolean") return inner ? 1 : 0;
   }
   return null;
 }
