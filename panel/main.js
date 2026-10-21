@@ -42,7 +42,6 @@ const kIntensityDefaultUi = 100.0; // igual a kIntensityDefault en ae/ColorLabAE
 const logEl = document.getElementById("log");
 const lookSelect = document.getElementById("lookSelect");
 const intensityInput = document.getElementById("intensity");
-const intensityValueEl = document.getElementById("intensityValue");
 const btnDiagnose = document.getElementById("btnDiagnose");
 const btnApply = document.getElementById("btnApply");
 
@@ -74,18 +73,16 @@ function populateLookDropdown() {
 }
 
 /**
- * UXP tampoco honra el atributo HTML "value" de <input type="range"> al
- * cargar la pagina (se vio quedar en 0, el minimo, en vez del 100 escrito en
- * el HTML) -- mismo patron que el <select>. Se fuerza por JS.
+ * UXP tampoco honra el atributo HTML "value" de los controles al cargar la
+ * pagina (se vio quedar en 0, el minimo, en vez del 100 escrito en el HTML)
+ * -- mismo patron que el <select>. Se fuerza por JS. Ademas se cambio de
+ * <input type="range"> a type="number": el slider se trababa en 0 al
+ * arrastrarlo en el runtime de UXP (reportado probando en vivo); un campo
+ * numerico con flechas es mas predecible.
  */
 function resetIntensityToDefault() {
   intensityInput.value = String(kIntensityDefaultUi);
-  intensityValueEl.textContent = kIntensityDefaultUi.toFixed(1);
 }
-
-intensityInput.addEventListener("input", () => {
-  intensityValueEl.textContent = Number(intensityInput.value).toFixed(1);
-});
 
 /**
  * Centraliza las 4 comprobaciones de la pregunta 4 del informe: sin
