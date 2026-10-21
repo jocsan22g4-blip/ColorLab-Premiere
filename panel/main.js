@@ -302,14 +302,24 @@ async function findColorLabMatchName() {
 /**
  * Busca en la cadena de componentes del clip uno cuyo matchName coincida
  * (el efecto Color Lab ya aplicado antes). Devuelve su indice o -1.
+ *
+ * getMatchName() puede ser async (como getComponentChain() o
+ * createComponent()) -- un primer intento la leia como valor directo y la
+ * comparacion nunca coincidia, asi que cada clic insertaba un componente
+ * nuevo en vez de reutilizar el existente. Se usa "await" sobre el
+ * resultado en los dos casos (un valor normal tambien se puede "esperar"
+ * sin problema) y se loguea cada matchName visto, para poder confirmar en
+ * el panel mismo si la deteccion esta funcionando.
  */
-function findExistingComponentIndex(chain, matchName) {
+async function findExistingComponentIndex(chain, matchName) {
   let count;
   try {
     count = chain.getComponentCount();
-  } catch {
+  } catch (e) {
+    log(`findExistingComponentIndex: getComponentCount() fallo: ${e}`, "warn");
     return -1;
   }
+  const seen = [];
   for (let i = 0; i < count; i++) {
     let comp;
     try {
@@ -318,11 +328,18 @@ function findExistingComponentIndex(chain, matchName) {
       continue;
     }
     try {
-      const mn = typeof comp?.getMatchName === "function" ? comp.getMatchName() : null;
+      let mn = null;
+      if (typeof comp?.getMatchName === "function") {
+        mn = await comp.getMatchName();
+      }
+      seen.push(mn);
       if (mn === matchName) return i;
-    } catch {
-      // ignorar y seguir buscando
+    } catch (e) {
+      seen.push(`(error: ${e})`);
     }
+  }
+  if (count > 0) {
+    log(`Componentes ya en la cadena (${count}): ${seen.map((s) => JSON.stringify(s)).join(", ")}. Ninguno coincide con "${matchName}".`);
   }
   return -1;
 }
@@ -361,7 +378,7 @@ async function applyCurrent() {
       return;
     }
 
-    let targetIndex = findExistingComponentIndex(chain, matchName);
+    let targetIndex = await findExistingComponentIndex(chain, matchName);
 
     // Si no esta aplicado todavia, insertarlo (transaccion 1). El
     // componente recien creado por VideoFilterFactory no expone
