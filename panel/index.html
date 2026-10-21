@@ -165,8 +165,7 @@
     border-bottom-color: #4a6cf0;
     outline: none;
   }
-  #intensitySlider,
-  .basic-slider {
+  #intensitySlider {
     position: relative;
     height: 20px;
     display: flex;
@@ -174,12 +173,7 @@
     cursor: pointer;
     touch-action: none;
   }
-  /* Los cinco de "Basic Adjustments" van apilados uno tras otro: sin este
-     margen, el siguiente control-row quedaria pegado al thumb anterior. */
-  .basic-slider { margin-bottom: 14px; }
-
-  #intensitySlider .track,
-  .basic-slider .track {
+  #intensitySlider .track {
     position: absolute;
     left: 0;
     right: 0;
@@ -187,8 +181,7 @@
     border-radius: 2px;
     background: linear-gradient(90deg, #203252 0%, #4a6cf0 55%, #f0cca4 100%);
   }
-  #intensitySlider .mask,
-  .basic-slider .mask {
+  #intensitySlider .mask {
     position: absolute;
     right: 0;
     height: 2px;
@@ -196,8 +189,7 @@
     background: #16233a;
     width: 0%;
   }
-  #intensitySlider .thumb,
-  .basic-slider .thumb {
+  #intensitySlider .thumb {
     position: absolute;
     width: 16px;
     height: 16px;
@@ -207,99 +199,7 @@
     transform: translateX(-50%);
     box-shadow: 0 1px 4px rgba(0,0,0,0.6);
   }
-  #intensitySlider.dragging .thumb,
-  .basic-slider.dragging .thumb { background: #dfe6ff; }
-
-  /* --- Ruedas de color (Lift / Gamma / Gain) ---
-     Todo con <div>: ningun <button> cerca, por el bug de apariencia
-     nativa de este runtime (ver la nota de .look-num).
-     El anillo de tono usa conic-gradient; si este runtime no lo soporta,
-     queda un circulo liso y el control sigue funcionando EXACTAMENTE
-     igual -- la posicion del punto es la que manda, no el color de
-     fondo. */
-  #lggRow { display: flex; gap: 8px; }
-  .wheel-cell {
-    flex: 1 1 0;
-    min-width: 0;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-  }
-  .wheel-label {
-    font-family: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, monospace;
-    font-size: 9px;
-    letter-spacing: 0.14em;
-    text-transform: uppercase;
-    color: #888b91;
-    margin-bottom: 7px;
-  }
-  .wheel {
-    position: relative;
-    width: 72px;
-    height: 72px;
-    border-radius: 50%;
-    background-color: #1c1d1f;
-    /* EL ORDEN DE ESTOS COLORES VA AL REVES QUE LA RUEDA DE TONO HABITUAL,
-       Y ES OBLIGATORIO. conic-gradient avanza EN SENTIDO HORARIO desde las
-       12; la matematica de main.js usa angulos matematicos, que avanzan al
-       reves. Con el degradado "natural" (rojo, amarillo, verde...) el
-       anillo pintaba el verde a la derecha mientras el control lo ponia a
-       la izquierda: arrastrar hacia el verde daba magenta. Los primarios
-       tienen que caer donde main.js los coloca -- rojo arriba, verde abajo
-       a la izquierda, azul abajo a la derecha. */
-    background-image: conic-gradient(from 0deg,
-      #e8706e, #c97ad8, #6b84d8, #62c2d8, #7fc98c, #d8c074, #e8706e);
-    cursor: pointer;
-    touch-action: none;
-    user-select: none;
-    -webkit-user-select: none;
-  }
-  /* El disco interior apaga el centro del anillo: el color queda como un
-     borde de referencia y el centro no compite con el punto blanco. */
-  .wheel-disc {
-    position: absolute;
-    left: 7px; top: 7px; right: 7px; bottom: 7px;
-    border-radius: 50%;
-    background-color: #0f0f10;
-  }
-  .wheel-center {
-    position: absolute;
-    left: 50%; top: 50%;
-    width: 5px; height: 5px;
-    margin: -2.5px 0 0 -2.5px;
-    border-radius: 50%;
-    background-color: rgba(255,255,255,0.22);
-  }
-  .wheel-dot {
-    position: absolute;
-    left: 50%; top: 50%;
-    width: 12px; height: 12px;
-    margin: -6px 0 0 -6px;
-    border-radius: 50%;
-    background-color: #ffffff;
-    box-shadow: 0 1px 4px rgba(0,0,0,0.7);
-  }
-  .wheel.dragging .wheel-dot { background-color: #dfe6ff; }
-
-  .wheel-master { width: 100%; margin-top: 8px; text-align: center; }
-  .wheel-slider { margin-bottom: 4px; }
-  /* El master es bipolar: el neutro esta en el centro, asi que su pista no
-     lleva el degrade de marca sino una linea lisa. */
-  .wheel-slider .track.neutral {
-    background: rgba(255,255,255,0.18);
-  }
-  .wheel-value {
-    font-family: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, monospace;
-    font-variant-numeric: tabular-nums;
-    font-size: 10px;
-    color: #b8babf;
-  }
-  .wheel-hint {
-    margin-top: 12px;
-    font-size: 10px;
-    color: #888b91;
-    line-height: 1.45;
-  }
+  #intensitySlider.dragging .thumb { background: #dfe6ff; }
 
   button {
     width: 100%;
@@ -381,117 +281,6 @@
       <div class="mask" id="intensityMask"></div>
       <div class="thumb" id="intensityThumb"></div>
     </div>
-  </section>
-
-  <section>
-    <div class="section-label">Basic Adjustments</div>
-
-    <div class="control-row">
-      <label for="exposureSlider">Exposure</label>
-      <span class="intensity-value" id="exposureValue" tabindex="0" title="Haz clic para escribir un valor">0.00</span>
-    </div>
-    <div id="exposureSlider" class="basic-slider">
-      <div class="track"></div>
-      <div class="mask" id="exposureMask"></div>
-      <div class="thumb" id="exposureThumb"></div>
-    </div>
-
-    <div class="control-row">
-      <label for="contrastSlider">Contrast</label>
-      <span class="intensity-value" id="contrastValue" tabindex="0" title="Haz clic para escribir un valor">0.0</span>
-    </div>
-    <div id="contrastSlider" class="basic-slider">
-      <div class="track"></div>
-      <div class="mask" id="contrastMask"></div>
-      <div class="thumb" id="contrastThumb"></div>
-    </div>
-
-    <div class="control-row">
-      <label for="temperatureSlider">Temperature</label>
-      <span class="intensity-value" id="temperatureValue" tabindex="0" title="Haz clic para escribir un valor">0.0</span>
-    </div>
-    <div id="temperatureSlider" class="basic-slider">
-      <div class="track"></div>
-      <div class="mask" id="temperatureMask"></div>
-      <div class="thumb" id="temperatureThumb"></div>
-    </div>
-
-    <div class="control-row">
-      <label for="tintSlider">Tint</label>
-      <span class="intensity-value" id="tintValue" tabindex="0" title="Haz clic para escribir un valor">0.0</span>
-    </div>
-    <div id="tintSlider" class="basic-slider">
-      <div class="track"></div>
-      <div class="mask" id="tintMask"></div>
-      <div class="thumb" id="tintThumb"></div>
-    </div>
-
-    <div class="control-row">
-      <label for="saturationSlider">Saturation</label>
-      <span class="intensity-value" id="saturationValue" tabindex="0" title="Haz clic para escribir un valor">100.0</span>
-    </div>
-    <div id="saturationSlider" class="basic-slider">
-      <div class="track"></div>
-      <div class="mask" id="saturationMask"></div>
-      <div class="thumb" id="saturationThumb"></div>
-    </div>
-  </section>
-
-  <section>
-    <div class="section-label">Lift / Gamma / Gain</div>
-    <div id="lggRow">
-      <div class="wheel-cell">
-        <div class="wheel-label">Lift</div>
-        <div class="wheel" id="liftWheel">
-          <div class="wheel-disc"></div>
-          <div class="wheel-center"></div>
-          <div class="wheel-dot" id="liftDot"></div>
-        </div>
-        <div class="wheel-master">
-          <div id="liftMasterSlider" class="basic-slider wheel-slider">
-            <div class="track neutral"></div>
-            <div class="mask" id="liftMasterMask"></div>
-            <div class="thumb" id="liftMasterThumb"></div>
-          </div>
-          <span class="wheel-value" id="liftMasterValue">0.00</span>
-        </div>
-      </div>
-
-      <div class="wheel-cell">
-        <div class="wheel-label">Gamma</div>
-        <div class="wheel" id="gammaWheel">
-          <div class="wheel-disc"></div>
-          <div class="wheel-center"></div>
-          <div class="wheel-dot" id="gammaDot"></div>
-        </div>
-        <div class="wheel-master">
-          <div id="gammaMasterSlider" class="basic-slider wheel-slider">
-            <div class="track neutral"></div>
-            <div class="mask" id="gammaMasterMask"></div>
-            <div class="thumb" id="gammaMasterThumb"></div>
-          </div>
-          <span class="wheel-value" id="gammaMasterValue">0.00</span>
-        </div>
-      </div>
-
-      <div class="wheel-cell">
-        <div class="wheel-label">Gain</div>
-        <div class="wheel" id="gainWheel">
-          <div class="wheel-disc"></div>
-          <div class="wheel-center"></div>
-          <div class="wheel-dot" id="gainDot"></div>
-        </div>
-        <div class="wheel-master">
-          <div id="gainMasterSlider" class="basic-slider wheel-slider">
-            <div class="track neutral"></div>
-            <div class="mask" id="gainMasterMask"></div>
-            <div class="thumb" id="gainMasterThumb"></div>
-          </div>
-          <span class="wheel-value" id="gainMasterValue">0.00</span>
-        </div>
-      </div>
-    </div>
-    <div class="wheel-hint">Arrastra dentro de la rueda para teñir. Doble clic para volver al centro.</div>
   </section>
 
   <section>
