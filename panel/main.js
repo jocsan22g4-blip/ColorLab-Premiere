@@ -37,6 +37,7 @@ const LOOK_NAMES = [
 
 const INTENSITY_MIN = 0.0;
 const INTENSITY_MAX = 100.0;
+const kIntensityDefaultUi = 100.0; // igual a kIntensityDefault en ae/ColorLabAE.h
 
 const logEl = document.getElementById("log");
 const lookSelect = document.getElementById("lookSelect");
@@ -70,6 +71,16 @@ function populateLookDropdown() {
   // lo hace un navegador normal -- se fuerza explicitamente. Sin esto se vio
   // lookSelect.value devolver undefined con el <select> recien poblado.
   lookSelect.selectedIndex = 0;
+}
+
+/**
+ * UXP tampoco honra el atributo HTML "value" de <input type="range"> al
+ * cargar la pagina (se vio quedar en 0, el minimo, en vez del 100 escrito en
+ * el HTML) -- mismo patron que el <select>. Se fuerza por JS.
+ */
+function resetIntensityToDefault() {
+  intensityInput.value = String(kIntensityDefaultUi);
+  intensityValueEl.textContent = kIntensityDefaultUi.toFixed(1);
 }
 
 intensityInput.addEventListener("input", () => {
@@ -189,7 +200,11 @@ btnApply.addEventListener("click", async () => {
     log(`lookSelect.value es invalido ("${lookSelect.value}"); usando Look=1 (Nature) por defecto. Revisa el desplegable -- puede que no haya quedado una opcion seleccionada.`, "warn");
     lookIndex = 1;
   }
-  const intensityValue = Number(intensityInput.value);
+  let intensityValue = Number(intensityInput.value);
+  if (!Number.isFinite(intensityValue) || intensityValue < INTENSITY_MIN || intensityValue > INTENSITY_MAX) {
+    log(`intensityInput.value es invalido ("${intensityInput.value}"); usando ${kIntensityDefaultUi.toFixed(1)} por defecto.`, "warn");
+    intensityValue = kIntensityDefaultUi;
+  }
 
   let component, chain, countBefore;
   try {
@@ -283,4 +298,5 @@ btnApply.addEventListener("click", async () => {
 });
 
 populateLookDropdown();
+resetIntensityToDefault();
 log("Panel cargado. Selecciona un clip de video en la linea de tiempo y pulsa Diagnosticar.");
