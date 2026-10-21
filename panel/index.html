@@ -99,10 +99,14 @@
     cursor: pointer;
   }
   .look-num:hover { box-shadow: inset 0 0 0 1px #4a6cf0; color: #ffffff; }
+  /* El Look PUESTO va en blanco: es el maximo contraste sobre el fondo
+     oscuro y se localiza de un vistazo entre los quince numeros. El azul
+     Senal se queda para el hover y el foco de teclado, que son estados
+     pasajeros; asi el blanco significa una sola cosa en esta tira. */
   .look-num.selected {
-    background: #4a6cf0;
+    background: #ffffff;
     box-shadow: none;
-    color: #ffffff;
+    color: #001b33;
     font-weight: 500;
   }
   .look-num:focus-visible { outline: 2px solid #4a6cf0; outline-offset: 1px; }
@@ -113,7 +117,10 @@
     font-weight: 600;
     letter-spacing: -0.4px;
   }
-  #lookReadout .idx { color: #4a6cf0; font-family: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, monospace; font-size: 14px; font-weight: 500; margin-right: 8px; }
+  /* El numero del nombre acompana al color del recuadro seleccionado: si
+     se quedara azul, seria el unico resto de un color que ya no significa
+     "seleccionado" en ningun otro sitio de la tira. */
+  #lookReadout .idx { color: #ffffff; font-family: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, monospace; font-size: 14px; font-weight: 500; margin-right: 8px; }
 
   /* --- Deslizador de Intensity (construido a mano: el <input type="range">
      nativo se traba al arrastrarlo en este runtime de UXP). Track fino con
