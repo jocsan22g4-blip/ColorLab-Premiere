@@ -183,10 +183,11 @@ btnApply.addEventListener("click", async () => {
   const lookIndex = Number(lookSelect.value);
   const intensityValue = Number(intensityInput.value);
 
-  let component, chain;
+  let component, chain, countBefore;
   try {
     component = await premierepro.VideoFilterFactory.createComponent(matchName);
     chain = await trackItem.getComponentChain();
+    countBefore = chain.getComponentCount();
   } catch (e) {
     log(`Fallo preparando el componente o la cadena de video: ${e}`, "error");
     return;
@@ -196,18 +197,51 @@ btnApply.addEventListener("click", async () => {
     return;
   }
 
+  // Paso 1: solo insertar el efecto. El componente recien creado por
+  // VideoFilterFactory (sin insertar todavia) no expone getParamCount/getParam
+  // en esta version de Premiere -- lo descubrimos probando este prototipo.
+  // Para leer/escribir parametros hay que volver a pedir el componente desde
+  // la cadena una vez que ya esta insertado (paso 2).
+  let appended = false;
+  try {
+    project.lockedAccess(() => {
+      appended = project.executeTransaction((compoundAction) => {
+        compoundAction.addAction(chain.createAppendComponentAction(component));
+      }, "Color Lab: insertar efecto");
+    });
+  } catch (e) {
+    log(`Fallo insertando el efecto en la cadena: ${e}`, "error");
+    return;
+  }
+  if (!appended) {
+    log("executeTransaction() de insercion devolvio false.", "error");
+    return;
+  }
+  log("Efecto insertado en el clip.");
+
+  // Paso 2: releer el componente ya insertado y escribir Look/Intensity.
+  let live;
+  try {
+    live = chain.getComponentAtIndex(countBefore);
+  } catch (e) {
+    log(`No se pudo releer el componente insertado (indice ${countBefore}): ${e}`, "error");
+    return;
+  }
+  if (typeof live?.getParamCount !== "function") {
+    log("El componente insertado tampoco expone getParamCount() -- el efecto quedo aplicado con sus valores por defecto, pero este prototipo no puede escribir Look/Intensity todavia. Revisa en consola (DevTools) que metodos SI tiene 'live' (console.log(live)).", "error");
+    console.log("componente insertado:", live);
+    return;
+  }
+
   let ok = false;
   try {
     project.lockedAccess(() => {
       ok = project.executeTransaction((compoundAction) => {
-        const appendAction = chain.createAppendComponentAction(component);
-        compoundAction.addAction(appendAction);
-
-        const count = component.getParamCount();
+        const count = live.getParamCount();
         let lookParam = null;
         let intensityParam = null;
         for (let i = 0; i < count; i++) {
-          const p = component.getParam(i);
+          const p = live.getParam(i);
           if (p?.displayName === "Look") lookParam = p;
           if (p?.displayName === "Intensity") intensityParam = p;
         }
@@ -228,15 +262,15 @@ btnApply.addEventListener("click", async () => {
       }, "Color Lab: aplicar look");
     });
   } catch (e) {
-    log(`La transaccion fallo: ${e}`, "error");
+    log(`La transaccion de parametros fallo: ${e}`, "error");
     return;
   }
 
   if (ok) {
-    log(`Efecto aplicado. Look=${lookIndex} (${LOOK_NAMES[lookIndex - 1]}), Intensity=${intensityValue.toFixed(1)}.`);
+    log(`Look/Intensity aplicados. Look=${lookIndex} (${LOOK_NAMES[lookIndex - 1]}), Intensity=${intensityValue.toFixed(1)}.`);
     log("Verifica en Controles de efectos y prueba Cmd/Ctrl+Z para confirmar el deshacer.");
   } else {
-    log("executeTransaction() devolvio false — revisa la consola (DevTools) para mas detalle.", "error");
+    log("executeTransaction() de parametros devolvio false — revisa la consola (DevTools) para mas detalle.", "error");
   }
 });
 
