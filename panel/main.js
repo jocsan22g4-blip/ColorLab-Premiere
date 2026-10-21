@@ -314,6 +314,10 @@ function createSlider({ idPrefix, paramKey, min, max, decimals, defaultValue, on
   return {
     get value() { return value; },
     set value(v) { value = Math.max(min, Math.min(max, v)); render(); },
+    /// Si el usuario tiene el dedo encima. La sincronizacion desde el clip
+    /// lo consulta para no arrancarle el slider de las manos a mitad de un
+    /// arrastre.
+    get dragging() { return dragging; },
     render,
   };
 }
@@ -482,7 +486,7 @@ async function findExistingComponentIndex(chain, matchName) {
  * arrastre (pointerdown) -- no en cada pointermove, ver la nota de
  * cabecera del archivo.
  */
-async function resolveTarget({ silent = false } = {}) {
+async function resolveTarget({ silent = false, insertIfMissing = true } = {}) {
   const selected = await getSelectedVideoClip({ silent });
   if (!selected.ok) {
     if (!silent) setStatus("Selecciona un clip de video para aplicar el Look.", "warn");
@@ -517,6 +521,13 @@ async function resolveTarget({ silent = false } = {}) {
   // de verdad y hay que volcarle TODOS sus valores. A partir de ahi manda
   // el clip, y el panel solo escribe lo que el usuario mueva.
   let inserted = false;
+
+  // La sincronizacion desde el clip llama con insertIfMissing en falso: un
+  // sondeo periodico que INSERTARA el efecto en cada clip que el usuario
+  // mire seria un desastre.
+  if (targetIndex === -1 && !insertIfMissing) {
+    return { ok: false, reason: "el clip no tiene Color Lab" };
+  }
 
   // Si no esta aplicado todavia, insertarlo (transaccion 1). El
   // componente recien creado por VideoFilterFactory no expone
@@ -608,6 +619,10 @@ function writeParams(target, { only = null, silent = false } = {}) {
   // leer el estado del clip (que es la otra mitad, pendiente).
   const wants = (key) => only === null || only === key;
 
+  // Marca el momento de la escritura para que el sondeo de sincronizacion
+  // no lea un valor viejo justo detras y se pelee con el usuario.
+  lastWriteAt = Date.now();
+
   let ok = false;
   try {
     project.lockedAccess(() => {
@@ -676,6 +691,196 @@ function writeParams(target, { only = null, silent = false } = {}) {
   return ok;
 }
 
+/* ---------------- Sincronizar el panel DESDE el clip ---------------- */
+
+/**
+ * Lee el valor actual de un ComponentParam.
+ *
+ * La API documentada ofrece dos caminos y ninguno estaba probado contra
+ * este runtime, asi que se intentan por orden y se registra cual funciono
+ * -- el mismo criterio con el que se descubrio que getMatchName() era
+ * async. `getStartValue()` devuelve un Keyframe (de ahi el .value);
+ * `getValueAtTime()` devuelve el valor directo pero necesita un TickTime.
+ */
+let readStrategy = null; // se aprende en la primera lectura y se reutiliza
+
+async function readParamValue(param, tickTime) {
+  if (!param) return null;
+
+  if (readStrategy === null || readStrategy === "startValue") {
+    try {
+      if (typeof param.getStartValue === "function") {
+        const kf = await param.getStartValue();
+        const v = (kf && typeof kf === "object" && "value" in kf) ? kf.value : kf;
+        if (typeof v === "number" && Number.isFinite(v)) {
+          if (readStrategy === null) {
+            readStrategy = "startValue";
+            log("Lectura de parametros: getStartValue() funciona.");
+          }
+          return v;
+        }
+      }
+    } catch (e) {
+      if (readStrategy === null) log(`getStartValue() fallo: ${e}`, "warn");
+    }
+  }
+
+  if (readStrategy === null || readStrategy === "valueAtTime") {
+    try {
+      if (typeof param.getValueAtTime === "function" && tickTime) {
+        const v = await param.getValueAtTime(tickTime);
+        if (typeof v === "number" && Number.isFinite(v)) {
+          if (readStrategy === null) {
+            readStrategy = "valueAtTime";
+            log("Lectura de parametros: getValueAtTime() funciona.");
+          }
+          return v;
+        }
+      }
+    } catch (e) {
+      if (readStrategy === null) log(`getValueAtTime() fallo: ${e}`, "warn");
+    }
+  }
+
+  if (readStrategy === null) {
+    readStrategy = "ninguna";
+    log("No se pudo leer el valor de ningun parametro: el panel no podra sincronizarse con el clip.", "warn");
+  }
+  return null;
+}
+
+/** Posicion del cabezal, si se puede obtener. Solo la usa getValueAtTime(). */
+async function currentTickTime(sequence) {
+  try {
+    if (sequence && typeof sequence.getPlayerPosition === "function") {
+      return await sequence.getPlayerPosition();
+    }
+  } catch {}
+  return null;
+}
+
+/** Lee del clip los siete valores que el panel controla. */
+async function readParamsFromClip(target, sequence) {
+  const { live } = target;
+  const out = {};
+  let count;
+  try {
+    count = live.getParamCount();
+  } catch {
+    return out;
+  }
+
+  const tickTime = await currentTickTime(sequence);
+
+  for (let i = 0; i < count; i++) {
+    let p;
+    try { p = live.getParam(i); } catch { continue; }
+    const name = p?.displayName;
+    if (name === "Look") {
+      const v = await readParamValue(p, tickTime);
+      // Premiere guarda el popup base-0; el panel es base-1.
+      if (v !== null) out.look = Math.round(v) + 1;
+    } else if (name === "Intensity") {
+      const v = await readParamValue(p, tickTime);
+      if (v !== null) out.intensity = v;
+    } else {
+      for (const [key, cfg] of Object.entries(BASIC)) {
+        if (name === cfg.displayName) {
+          const v = await readParamValue(p, tickTime);
+          if (v !== null) out[key] = v;
+        }
+      }
+    }
+  }
+  return out;
+}
+
+/// Cuando el panel escribio por ultima vez. Un sondeo que llegue justo
+/// detras de una escritura leeria el valor viejo y lo devolveria al panel,
+/// peleandose con el usuario; por eso se deja un margen.
+let lastWriteAt = 0;
+const SYNC_COOLDOWN_MS = 900;
+const SYNC_INTERVAL_MS = 1000;
+
+let syncing = false;
+
+function anySliderDragging() {
+  if (intensitySlider.dragging) return true;
+  for (const s of Object.values(basicSliders)) {
+    if (s.dragging) return true;
+  }
+  return false;
+}
+
+/**
+ * Trae al panel los valores del clip seleccionado.
+ *
+ * Es lo que hace que cambiar de clip muestre SUS valores, y que lo que
+ * ajustes en Controles de efectos aparezca aqui. Se sondea porque no hay
+ * un evento documentado de cambio de seleccion en la API de UXP.
+ *
+ * No inserta el efecto (insertIfMissing: false) y no escribe nada: si el
+ * clip no tiene Color Lab, el panel se queda como esta, que son los
+ * valores que se aplicarian al pulsar Aplicar.
+ */
+async function syncFromClip() {
+  if (syncing || applying || anySliderDragging()) return;
+  if (Date.now() - lastWriteAt < SYNC_COOLDOWN_MS) return;
+  if (readStrategy === "ninguna") return; // ya se comprobo que no se puede
+
+  syncing = true;
+  try {
+    const selected = await getSelectedVideoClip({ silent: true });
+    if (!selected.ok) return;
+
+    const target = await resolveTarget({ silent: true, insertIfMissing: false });
+    if (!target.ok) return;
+
+    const values = await readParamsFromClip(target, selected.sequence);
+
+    // Volver a comprobar: la lectura es async y el usuario pudo empezar a
+    // mover algo mientras tanto.
+    if (applying || anySliderDragging()) return;
+    if (Date.now() - lastWriteAt < SYNC_COOLDOWN_MS) return;
+
+    let changed = false;
+
+    if (typeof values.look === "number" &&
+        values.look >= 1 && values.look <= LOOKS.length &&
+        values.look !== selectedLookIndex) {
+      selectedLookIndex = values.look;
+      [...lookStripEl.children].forEach((num) => {
+        num.classList.toggle("selected", Number(num.dataset.lookIndex) === selectedLookIndex);
+      });
+      renderLookReadout();
+      changed = true;
+    }
+
+    if (typeof values.intensity === "number" &&
+        Math.abs(values.intensity - intensitySlider.value) > 0.05) {
+      intensitySlider.value = values.intensity;
+      changed = true;
+    }
+
+    for (const key of Object.keys(BASIC)) {
+      const v = values[key];
+      if (typeof v === "number" && Math.abs(v - basicSliders[key].value) > 0.005) {
+        basicSliders[key].value = v;
+        changed = true;
+      }
+    }
+
+    if (changed) {
+      const name = LOOKS[selectedLookIndex - 1]?.name ?? selectedLookIndex;
+      setStatus(`Sincronizado con el clip · ${name}`, "ok");
+    }
+  } catch (e) {
+    log(`syncFromClip() fallo: ${e}`, "warn");
+  } finally {
+    syncing = false;
+  }
+}
+
 let applying = false;
 
 /**
@@ -725,3 +930,9 @@ try {
   log(`buildLookStrip() fallo: ${e}`, "error");
 }
 log("Panel cargado. Selecciona un Look o ajusta Intensity/Basic Adjustments para aplicarlos al clip seleccionado.");
+
+// Sondeo de sincronizacion. No hay evento documentado de cambio de
+// seleccion en la API de UXP, asi que se pregunta cada segundo: es lo que
+// hace que cambiar de clip muestre SUS valores y que lo ajustado en
+// Controles de efectos aparezca en el panel.
+setInterval(() => { syncFromClip(); }, SYNC_INTERVAL_MS);
