@@ -4,29 +4,59 @@
 <meta charset="utf-8" />
 <title>Color Lab</title>
 <style>
+  /*
+   * Tokens del sistema de marca de Color Lab (tomados del artifact de
+   * identidad visual, variante "primera" -- no la aguamarina):
+   *   #000000  vacio / lienzo
+   *   #0f0f10  obsidiana / tarjeta
+   *   #1c1d1f  carbon / controles
+   *   #001b33  marino -- asignado en el sistema como "panel del plug-in"
+   *   #4a6cf0  senal -- unico acento cromatico
+   *   #f0cca4  arena -- acento calido, labels tecnicos
+   *   #ffffff  blanco -- "la accion" (color de los botones primarios)
+   *   #b8babf  niebla -- texto de apoyo
+   *   #888b91  ceniza -- texto terciario
+   * Tipografia: Inter (UI) + JetBrains Mono (labels tecnicos, mayusculas,
+   * tracking ancho). Sin bundlear los webfonts (este runtime de UXP no es
+   * confiable con red ni con CSS moderno -- ver notas en TESTING.md): se
+   * listan como preferencia y cae a la fuente del sistema si no estan
+   * instaladas, que ya es visualmente muy cercana.
+   */
   :root { color-scheme: dark; }
   * { box-sizing: border-box; }
   body {
     margin: 0;
-    padding: 10px;
-    font-family: -apple-system, "Segoe UI", sans-serif;
+    padding: 14px;
+    font-family: "Inter", -apple-system, "Segoe UI", "Helvetica Neue", Arial, sans-serif;
     font-size: 12px;
-    background: #2e2e2e;
-    color: #e5e5e5;
+    background: #001b33;
+    color: #ffffff;
   }
-  h1 {
-    font-size: 12.5px;
-    font-weight: 600;
-    margin: 0 0 8px 0;
-    color: #fafafa;
-    letter-spacing: 0.2px;
+  .brand {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin: 0 0 14px 0;
   }
+  .brand img {
+    height: 18px;
+    width: auto;
+    display: block;
+  }
+  .brand .wordmark {
+    font-size: 15px;
+    letter-spacing: -0.2px;
+  }
+  .brand .wordmark b { font-weight: 700; }
+  .brand .wordmark span { font-weight: 300; color: #b8babf; }
+
   .section-label {
-    color: #9a9a9a;
-    font-size: 10.5px;
+    font-family: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, monospace;
+    color: #f0cca4;
+    font-size: 10px;
     text-transform: uppercase;
-    letter-spacing: 0.4px;
-    margin: 10px 0 6px 0;
+    letter-spacing: 0.18em;
+    margin: 14px 0 8px 0;
   }
 
   /* --- Navegador de Looks ---
@@ -48,10 +78,10 @@
     width: 31.5%;
     margin-bottom: 8px;
     border: 2px solid transparent;
-    border-radius: 6px;
+    border-radius: 8px;
     overflow: hidden;
     cursor: pointer;
-    background: #1c1c1c;
+    background: #1c1d1f;
     padding: 0;
     text-align: left;
   }
@@ -59,7 +89,7 @@
     width: 100%;
     padding-top: 56.25%; /* caja 16:9 sin usar aspect-ratio */
     position: relative;
-    background-color: #111;
+    background-color: #0f0f10;
     background-size: cover;
     background-position: center;
     pointer-events: none;
@@ -67,20 +97,20 @@
   .look-card .look-name {
     display: block;
     font-size: 9.5px;
-    line-height: 1.5;
-    padding: 2px 4px;
-    color: #cfcfcf;
+    line-height: 1.6;
+    padding: 3px 5px;
+    color: #b8babf;
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
-    background: #181818;
+    background: #0f0f10;
     pointer-events: none;
   }
-  .look-card:hover { border-color: #666; }
-  .look-card:hover .look-name { color: #fff; }
-  .look-card.selected { border-color: #2f6fed; }
-  .look-card.selected .look-name { color: #8ab4ff; background: #182238; }
-  .look-card:focus-visible { outline: 2px solid #2f6fed; outline-offset: 1px; }
+  .look-card:hover { border-color: #3a4a66; }
+  .look-card:hover .look-name { color: #ffffff; }
+  .look-card.selected { border-color: #4a6cf0; }
+  .look-card.selected .look-name { color: #ffffff; background: #15294a; }
+  .look-card:focus-visible { outline: 2px solid #4a6cf0; outline-offset: 1px; }
 
   /* --- Deslizador de Intensity (construido a mano: el <input type="range">
          nativo se traba al arrastrarlo en este runtime de UXP) --- */
@@ -88,11 +118,12 @@
     display: flex;
     align-items: center;
     justify-content: space-between;
-    margin-bottom: 6px;
+    margin-bottom: 8px;
   }
   .intensity-value {
+    font-family: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, monospace;
     font-variant-numeric: tabular-nums;
-    color: #fafafa;
+    color: #ffffff;
     font-size: 12px;
     min-width: 34px;
     text-align: right;
@@ -101,7 +132,7 @@
   }
   .intensity-value:hover,
   .intensity-value:focus {
-    border-bottom-color: #666;
+    border-bottom-color: #4a6cf0;
     outline: none;
   }
   #intensitySlider {
@@ -118,14 +149,15 @@
     right: 0;
     height: 4px;
     border-radius: 2px;
-    background: #4a4a4a;
+    background: #1c1d1f;
+    box-shadow: inset 0 0 0 1px rgba(255,255,255,0.1);
   }
   #intensitySlider .fill {
     position: absolute;
     left: 0;
     height: 4px;
     border-radius: 2px;
-    background: #2f6fed;
+    background: #4a6cf0;
     width: 100%;
   }
   #intensitySlider .thumb {
@@ -133,56 +165,66 @@
     width: 14px;
     height: 14px;
     border-radius: 50%;
-    background: #fff;
-    border: 2px solid #2f6fed;
+    background: #ffffff;
+    border: 2px solid #4a6cf0;
     left: 100%;
     transform: translateX(-50%);
     box-shadow: 0 1px 3px rgba(0,0,0,0.5);
   }
-  #intensitySlider.dragging .thumb { background: #cfe0ff; }
+  #intensitySlider.dragging .thumb { background: #dfe6ff; }
 
   button {
     width: 100%;
-    padding: 6px 0;
+    padding: 8px 0;
     margin-top: 4px;
-    border: 1px solid #555;
-    border-radius: 4px;
-    background: #3a3a3a;
-    color: #ddd;
+    border: 0;
+    border-radius: 9px;
+    background: #1c1d1f;
+    color: #ffffff;
     cursor: pointer;
-    font-size: 11px;
+    font-size: 12px;
+    font-weight: 500;
+    box-shadow: inset 0 0 0 1px rgba(255,255,255,0.15);
   }
-  button:hover { background: #454545; }
-  button.primary { background: #2f6fed; border-color: #2f6fed; color: #fff; }
-  button.primary:hover { background: #4b82f2; }
-  button.subtle { background: transparent; border-color: #444; color: #999; }
-  button.subtle:hover { background: #333; color: #ccc; }
+  button:hover { background: #26282b; }
+  button.primary { background: #ffffff; color: #001b33; box-shadow: none; }
+  button.primary:hover { background: #e9edf5; }
+  button.subtle {
+    background: none;
+    color: #b8babf;
+    box-shadow: none;
+    font-weight: 400;
+  }
+  button.subtle:hover { background: #0f0f10; color: #ffffff; }
 
   #status {
-    margin-top: 6px;
+    margin-top: 8px;
     font-size: 10.5px;
-    color: #9a9a9a;
+    color: #888b91;
     min-height: 13px;
   }
-  #status.error { color: #ff8a8a; }
-  #status.warn { color: #ffd166; }
-  #status.ok { color: #8ed08e; }
+  #status.error { color: #ff9b8a; }
+  #status.warn { color: #f0cca4; }
+  #status.ok { color: #ffffff; }
 
-  details#diagnostics { margin-top: 10px; }
+  details#diagnostics { margin-top: 12px; }
   details#diagnostics summary {
     cursor: pointer;
-    font-size: 10.5px;
-    color: #888;
+    font-family: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, monospace;
+    font-size: 10px;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: #888b91;
   }
   #log {
-    margin-top: 6px;
-    padding: 6px;
+    margin-top: 8px;
+    padding: 8px;
     height: 120px;
     overflow-y: auto;
-    background: #1c1c1c;
-    border: 1px solid #444;
-    border-radius: 4px;
-    font-family: ui-monospace, Menlo, monospace;
+    background: #0f0f10;
+    border-radius: 8px;
+    box-shadow: inset 0 0 0 1px rgba(255,255,255,0.08);
+    font-family: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, monospace;
     font-size: 10px;
     white-space: pre-wrap;
     word-break: break-word;
@@ -190,7 +232,10 @@
 </style>
 </head>
 <body>
-  <h1>Color Lab</h1>
+  <div class="brand">
+    <img src="./assets/brand/colorlab-mark.png" alt="" />
+    <span class="wordmark"><b>Color</b><span>Lab</span></span>
+  </div>
 
   <div class="section-label">Look</div>
   <div id="lookGrid"></div>
