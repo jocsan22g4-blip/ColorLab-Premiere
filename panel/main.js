@@ -31,6 +31,9 @@
  *     mando Jocsan (Color Lab Zero, otro producto), se descartaron por
  *     redundantes: Lift/Gamma/Gain cubre el primero (pendiente, UI de
  *     ruedas de color) y Split Tone ya cubre el segundo.
+ *   - Doble clic en cualquier slider (Intensity incluido) = volver a su
+ *     valor por defecto. Mismo gesto que "Reset Parameter" en Effect
+ *     Controls/After Effects.
  */
 
 const premierepro = require("premierepro");
@@ -194,6 +197,18 @@ function createSlider({ idPrefix, min, max, decimals, defaultValue, onCommit }) 
   }
   el.addEventListener("pointerup", finishDrag);
   el.addEventListener("pointercancel", finishDrag);
+
+  // Doble clic sobre el slider (track o thumb) = volver al valor por
+  // defecto. Mismo gesto que usan Effect Controls y After Effects para
+  // "Reset Parameter" -- no hace falta una casilla aparte por control, y
+  // va en el slider (no en el numero) para no chocar con el clic simple
+  // que abre la edicion de texto.
+  el.addEventListener("dblclick", (ev) => {
+    ev.preventDefault();
+    value = defaultValue;
+    render();
+    onCommit();
+  });
 
   // Click en el numero para escribirlo a mano.
   valueEl.addEventListener("click", () => {
