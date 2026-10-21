@@ -66,6 +66,10 @@ function populateLookDropdown() {
     opt.textContent = `${i + 1}. ${name}`;
     lookSelect.appendChild(opt);
   });
+  // No asumir que el runtime de UXP auto-selecciona la primera opcion como
+  // lo hace un navegador normal -- se fuerza explicitamente. Sin esto se vio
+  // lookSelect.value devolver undefined con el <select> recien poblado.
+  lookSelect.selectedIndex = 0;
 }
 
 intensityInput.addEventListener("input", () => {
@@ -180,7 +184,11 @@ btnApply.addEventListener("click", async () => {
     return;
   }
 
-  const lookIndex = Number(lookSelect.value);
+  let lookIndex = Number(lookSelect.value);
+  if (!Number.isInteger(lookIndex) || lookIndex < 1 || lookIndex > LOOK_NAMES.length) {
+    log(`lookSelect.value es invalido ("${lookSelect.value}"); usando Look=1 (Nature) por defecto. Revisa el desplegable -- puede que no haya quedado una opcion seleccionada.`, "warn");
+    lookIndex = 1;
+  }
   const intensityValue = Number(intensityInput.value);
 
   let component, chain, countBefore;
