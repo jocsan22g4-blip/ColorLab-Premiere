@@ -18,6 +18,19 @@
  *     por cada clic: si el clip seleccionado ya tiene Color Lab en su
  *     cadena, se reutiliza (se detecta por Component.getMatchName()) y solo
  *     se actualizan sus parametros.
+ *
+ * Novedades de la Etapa 3 (ver la decision registrada en el informe
+ * tecnico, 20 oct):
+ *   - Seccion "Basic Adjustments": Exposure, Contrast, Temperature, Tint,
+ *     Saturation. Mismo widget de slider que Intensity -- se generalizo en
+ *     createSlider() en vez de copiar el codigo de arrastre cinco veces
+ *     mas. Los nombres visibles tienen que coincidir EXACTO con las
+ *     etiquetas que declara ae/ColorLabAE.cpp (PF_ADD_FLOAT_SLIDERX): es
+ *     por displayName que este panel encuentra cada parametro.
+ *   - Highlights/Shadows/Midtones y Shadow Tint, de la referencia que
+ *     mando Jocsan (Color Lab Zero, otro producto), se descartaron por
+ *     redundantes: Lift/Gamma/Gain cubre el primero (pendiente, UI de
+ *     ruedas de color) y Split Tone ya cubre el segundo.
  */
 
 const premierepro = require("premierepro");
@@ -47,6 +60,16 @@ const INTENSITY_MIN = 0.0;
 const INTENSITY_MAX = 100.0;
 const kIntensityDefaultUi = 100.0; // igual a kIntensityDefault en ae/ColorLabAE.h
 
+// Mismos rangos y valores por defecto que kBasic*Min/Max/Default en
+// ae/ColorLabAE.h -- si un numero cambia alla, cambia aqui tambien.
+const BASIC = {
+  exposure:    { min: -5.0,   max: 5.0,   default: 0.0,   decimals: 2, displayName: "Exposure" },
+  contrast:    { min: -100.0, max: 100.0, default: 0.0,   decimals: 1, displayName: "Contrast" },
+  temperature: { min: -100.0, max: 100.0, default: 0.0,   decimals: 1, displayName: "Temperature" },
+  tint:        { min: -100.0, max: 100.0, default: 0.0,   decimals: 1, displayName: "Tint" },
+  saturation:  { min: 0.0,    max: 200.0, default: 100.0, decimals: 1, displayName: "Saturation" },
+};
+
 const logEl = document.getElementById("log");
 const statusEl = document.getElementById("status");
 const lookStripEl = document.getElementById("lookStrip");
@@ -55,13 +78,7 @@ const lookNameLabelEl = document.getElementById("lookNameLabel");
 const btnDiagnose = document.getElementById("btnDiagnose");
 const btnApply = document.getElementById("btnApply");
 
-const sliderEl = document.getElementById("intensitySlider");
-const sliderMaskEl = document.getElementById("intensityMask");
-const sliderThumbEl = document.getElementById("intensityThumb");
-const intensityValueEl = document.getElementById("intensityValue");
-
 let selectedLookIndex = 1; // 1-based
-let intensityValue = kIntensityDefaultUi;
 let cachedMatchName = null; // se resuelve una vez y se reutiliza
 
 function log(msg, level = "info") {
@@ -117,77 +134,126 @@ function selectLook(lookIndex) {
   applyCurrent();
 }
 
-/* ---------------- Deslizador de Intensity ---------------- */
+/* ---------------- Deslizadores (Intensity + Etapa 3) ---------------- */
 
-function renderIntensityUi() {
-  const pct = ((intensityValue - INTENSITY_MIN) / (INTENSITY_MAX - INTENSITY_MIN)) * 100;
-  // El track muestra siempre el degrade completo de marca; la mascara
-  // oscura cubre la parte todavia no "revelada" a la derecha del thumb.
-  sliderMaskEl.style.width = `${100 - pct}%`;
-  sliderThumbEl.style.left = `${pct}%`;
-  intensityValueEl.textContent = intensityValue.toFixed(1);
-}
+/**
+ * Un deslizador construido a mano (HTML/CSS + Pointer Events), igual que el
+ * de Intensity en la Etapa 2 -- generalizado aqui para no repetir el mismo
+ * codigo de arrastre seis veces. El <input type="range"> nativo se traba al
+ * arrastrarlo en este runtime de UXP (hallazgo de la Etapa 1); de ahi que
+ * siga sin usarse.
+ *
+ * `idPrefix` espera cuatro elementos en el DOM: `${idPrefix}Slider`,
+ * `${idPrefix}Mask`, `${idPrefix}Thumb`, `${idPrefix}Value`.
+ */
+function createSlider({ idPrefix, min, max, decimals, defaultValue, onCommit }) {
+  const el = document.getElementById(`${idPrefix}Slider`);
+  const maskEl = document.getElementById(`${idPrefix}Mask`);
+  const thumbEl = document.getElementById(`${idPrefix}Thumb`);
+  const valueEl = document.getElementById(`${idPrefix}Value`);
 
-function setIntensityFromClientX(clientX) {
-  const rect = sliderEl.getBoundingClientRect();
-  let pct = (clientX - rect.left) / rect.width;
-  pct = Math.max(0, Math.min(1, pct));
-  intensityValue = INTENSITY_MIN + pct * (INTENSITY_MAX - INTENSITY_MIN);
-  renderIntensityUi();
-}
+  let value = defaultValue;
+  let dragging = false;
 
-let draggingSlider = false;
-
-sliderEl.addEventListener("pointerdown", (ev) => {
-  draggingSlider = true;
-  sliderEl.classList.add("dragging");
-  sliderEl.setPointerCapture(ev.pointerId);
-  setIntensityFromClientX(ev.clientX);
-  ev.preventDefault();
-});
-sliderEl.addEventListener("pointermove", (ev) => {
-  if (!draggingSlider) return;
-  setIntensityFromClientX(ev.clientX);
-});
-function finishSliderDrag(ev) {
-  if (!draggingSlider) return;
-  draggingSlider = false;
-  sliderEl.classList.remove("dragging");
-  try { sliderEl.releasePointerCapture(ev.pointerId); } catch {}
-  // Solo se llama a Premiere al soltar -- aplicar en cada pixel arrastrado
-  // apilaria una llamada de transaccion por frame de movimiento.
-  applyCurrent();
-}
-sliderEl.addEventListener("pointerup", finishSliderDrag);
-sliderEl.addEventListener("pointercancel", finishSliderDrag);
-
-// Click en el numero para escribirlo a mano.
-intensityValueEl.addEventListener("click", () => {
-  intensityValueEl.contentEditable = "true";
-  intensityValueEl.focus();
-  document.execCommand && document.execCommand("selectAll", false, null);
-});
-function commitIntensityEdit() {
-  intensityValueEl.contentEditable = "false";
-  let v = Number(String(intensityValueEl.textContent).replace(",", "."));
-  if (!Number.isFinite(v)) v = intensityValue;
-  v = Math.max(INTENSITY_MIN, Math.min(INTENSITY_MAX, v));
-  intensityValue = v;
-  renderIntensityUi();
-  applyCurrent();
-}
-intensityValueEl.addEventListener("blur", commitIntensityEdit);
-intensityValueEl.addEventListener("keydown", (ev) => {
-  if (ev.key === "Enter") {
-    ev.preventDefault();
-    intensityValueEl.blur();
-  } else if (ev.key === "Escape") {
-    ev.preventDefault();
-    renderIntensityUi();
-    intensityValueEl.contentEditable = "false";
-    intensityValueEl.blur();
+  function render() {
+    const pct = ((value - min) / (max - min)) * 100;
+    // El track muestra siempre el degrade completo de marca; la mascara
+    // oscura cubre la parte todavia no "revelada" a la derecha del thumb.
+    maskEl.style.width = `${100 - pct}%`;
+    thumbEl.style.left = `${pct}%`;
+    valueEl.textContent = value.toFixed(decimals);
   }
+
+  function setFromClientX(clientX) {
+    const rect = el.getBoundingClientRect();
+    let pct = (clientX - rect.left) / rect.width;
+    pct = Math.max(0, Math.min(1, pct));
+    value = min + pct * (max - min);
+    render();
+  }
+
+  el.addEventListener("pointerdown", (ev) => {
+    dragging = true;
+    el.classList.add("dragging");
+    el.setPointerCapture(ev.pointerId);
+    setFromClientX(ev.clientX);
+    ev.preventDefault();
+  });
+  el.addEventListener("pointermove", (ev) => {
+    if (!dragging) return;
+    setFromClientX(ev.clientX);
+  });
+  function finishDrag(ev) {
+    if (!dragging) return;
+    dragging = false;
+    el.classList.remove("dragging");
+    try { el.releasePointerCapture(ev.pointerId); } catch {}
+    // Solo se llama a Premiere al soltar -- aplicar en cada pixel arrastrado
+    // apilaria una llamada de transaccion por frame de movimiento.
+    onCommit();
+  }
+  el.addEventListener("pointerup", finishDrag);
+  el.addEventListener("pointercancel", finishDrag);
+
+  // Click en el numero para escribirlo a mano.
+  valueEl.addEventListener("click", () => {
+    valueEl.contentEditable = "true";
+    valueEl.focus();
+    document.execCommand && document.execCommand("selectAll", false, null);
+  });
+  function commitEdit() {
+    valueEl.contentEditable = "false";
+    let v = Number(String(valueEl.textContent).replace(",", "."));
+    if (!Number.isFinite(v)) v = value;
+    v = Math.max(min, Math.min(max, v));
+    value = v;
+    render();
+    onCommit();
+  }
+  valueEl.addEventListener("blur", commitEdit);
+  valueEl.addEventListener("keydown", (ev) => {
+    if (ev.key === "Enter") {
+      ev.preventDefault();
+      valueEl.blur();
+    } else if (ev.key === "Escape") {
+      ev.preventDefault();
+      render();
+      valueEl.contentEditable = "false";
+      valueEl.blur();
+    }
+  });
+
+  render();
+
+  return {
+    get value() { return value; },
+    set value(v) { value = Math.max(min, Math.min(max, v)); render(); },
+    render,
+  };
+}
+
+const intensitySlider = createSlider({
+  idPrefix: "intensity",
+  min: INTENSITY_MIN,
+  max: INTENSITY_MAX,
+  decimals: 1,
+  defaultValue: kIntensityDefaultUi,
+  onCommit: () => applyCurrent(),
 });
+
+// Etapa 3: un deslizador por entrada de BASIC, con el mismo idPrefix que la
+// clave (p. ej. "exposure" -> #exposureSlider/#exposureMask/...).
+const basicSliders = {};
+for (const [key, cfg] of Object.entries(BASIC)) {
+  basicSliders[key] = createSlider({
+    idPrefix: key,
+    min: cfg.min,
+    max: cfg.max,
+    decimals: cfg.decimals,
+    defaultValue: cfg.default,
+    onCommit: () => applyCurrent(),
+  });
+}
 
 /* ---------------- Logica de Premiere (de la Etapa 1) ---------------- */
 
@@ -414,10 +480,18 @@ async function applyCurrent() {
           const count = live.getParamCount();
           let lookParam = null;
           let intensityParam = null;
+          // Etapa 3: un parametro por entrada de BASIC, buscado por el
+          // mismo displayName que declara ae/ColorLabAE.cpp.
+          const basicParams = {};
           for (let i = 0; i < count; i++) {
             const p = live.getParam(i);
             if (p?.displayName === "Look") lookParam = p;
-            if (p?.displayName === "Intensity") intensityParam = p;
+            else if (p?.displayName === "Intensity") intensityParam = p;
+            else {
+              for (const [key, cfg] of Object.entries(BASIC)) {
+                if (p?.displayName === cfg.displayName) basicParams[key] = p;
+              }
+            }
           }
 
           if (lookParam) {
@@ -431,10 +505,23 @@ async function applyCurrent() {
           }
 
           if (intensityParam) {
-            const kf = intensityParam.createKeyframe(intensityValue);
+            const kf = intensityParam.createKeyframe(intensitySlider.value);
             compoundAction.addAction(intensityParam.createSetValueAction(kf, true));
           } else {
             log(`No se encontro un parametro llamado "Intensity" entre ${count} parametros.`, "warn");
+          }
+
+          // Si el .aex instalado todavia es el de la Etapa 2, estos cinco
+          // simplemente no aparecen -- se loguea en warn y el resto del
+          // panel (Look/Intensity/Split Tone) sigue funcionando igual.
+          for (const [key, cfg] of Object.entries(BASIC)) {
+            const param = basicParams[key];
+            if (!param) {
+              log(`No se encontro un parametro llamado "${cfg.displayName}" entre ${count} parametros.`, "warn");
+              continue;
+            }
+            const kf = param.createKeyframe(basicSliders[key].value);
+            compoundAction.addAction(param.createSetValueAction(kf, true));
           }
         }, "Color Lab: aplicar look");
       });
@@ -446,8 +533,8 @@ async function applyCurrent() {
 
     if (ok) {
       const name = LOOKS[selectedLookIndex - 1]?.name ?? selectedLookIndex;
-      setStatus(`${name} · Intensity ${intensityValue.toFixed(1)}`, "ok");
-      log(`Aplicado Look=${selectedLookIndex} (${name}), Intensity=${intensityValue.toFixed(1)}.`);
+      setStatus(`${name} · Intensity ${intensitySlider.value.toFixed(1)}`, "ok");
+      log(`Aplicado Look=${selectedLookIndex} (${name}), Intensity=${intensitySlider.value.toFixed(1)}.`);
     } else {
       setStatus("executeTransaction() de parametros devolvio false.", "error");
     }
@@ -472,5 +559,4 @@ try {
 } catch (e) {
   log(`buildLookStrip() fallo: ${e}`, "error");
 }
-renderIntensityUi();
-log("Panel cargado. Selecciona un Look o ajusta Intensity para aplicarlos al clip seleccionado.");
+log("Panel cargado. Selecciona un Look o ajusta Intensity/Basic Adjustments para aplicarlos al clip seleccionado.");

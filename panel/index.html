@@ -147,7 +147,8 @@
     border-bottom-color: #4a6cf0;
     outline: none;
   }
-  #intensitySlider {
+  #intensitySlider,
+  .basic-slider {
     position: relative;
     height: 20px;
     display: flex;
@@ -155,7 +156,12 @@
     cursor: pointer;
     touch-action: none;
   }
-  #intensitySlider .track {
+  /* Los cinco de "Basic Adjustments" van apilados uno tras otro: sin este
+     margen, el siguiente control-row quedaria pegado al thumb anterior. */
+  .basic-slider { margin-bottom: 14px; }
+
+  #intensitySlider .track,
+  .basic-slider .track {
     position: absolute;
     left: 0;
     right: 0;
@@ -163,7 +169,8 @@
     border-radius: 2px;
     background: linear-gradient(90deg, #203252 0%, #4a6cf0 55%, #f0cca4 100%);
   }
-  #intensitySlider .mask {
+  #intensitySlider .mask,
+  .basic-slider .mask {
     position: absolute;
     right: 0;
     height: 2px;
@@ -171,7 +178,8 @@
     background: #16233a;
     width: 0%;
   }
-  #intensitySlider .thumb {
+  #intensitySlider .thumb,
+  .basic-slider .thumb {
     position: absolute;
     width: 16px;
     height: 16px;
@@ -181,7 +189,8 @@
     transform: translateX(-50%);
     box-shadow: 0 1px 4px rgba(0,0,0,0.6);
   }
-  #intensitySlider.dragging .thumb { background: #dfe6ff; }
+  #intensitySlider.dragging .thumb,
+  .basic-slider.dragging .thumb { background: #dfe6ff; }
 
   button {
     width: 100%;
@@ -262,6 +271,60 @@
       <div class="track"></div>
       <div class="mask" id="intensityMask"></div>
       <div class="thumb" id="intensityThumb"></div>
+    </div>
+  </section>
+
+  <section>
+    <div class="section-label">Basic Adjustments</div>
+
+    <div class="control-row">
+      <label for="exposureSlider">Exposure</label>
+      <span class="intensity-value" id="exposureValue" tabindex="0" title="Haz clic para escribir un valor">0.00</span>
+    </div>
+    <div id="exposureSlider" class="basic-slider">
+      <div class="track"></div>
+      <div class="mask" id="exposureMask"></div>
+      <div class="thumb" id="exposureThumb"></div>
+    </div>
+
+    <div class="control-row">
+      <label for="contrastSlider">Contrast</label>
+      <span class="intensity-value" id="contrastValue" tabindex="0" title="Haz clic para escribir un valor">0.0</span>
+    </div>
+    <div id="contrastSlider" class="basic-slider">
+      <div class="track"></div>
+      <div class="mask" id="contrastMask"></div>
+      <div class="thumb" id="contrastThumb"></div>
+    </div>
+
+    <div class="control-row">
+      <label for="temperatureSlider">Temperature</label>
+      <span class="intensity-value" id="temperatureValue" tabindex="0" title="Haz clic para escribir un valor">0.0</span>
+    </div>
+    <div id="temperatureSlider" class="basic-slider">
+      <div class="track"></div>
+      <div class="mask" id="temperatureMask"></div>
+      <div class="thumb" id="temperatureThumb"></div>
+    </div>
+
+    <div class="control-row">
+      <label for="tintSlider">Tint</label>
+      <span class="intensity-value" id="tintValue" tabindex="0" title="Haz clic para escribir un valor">0.0</span>
+    </div>
+    <div id="tintSlider" class="basic-slider">
+      <div class="track"></div>
+      <div class="mask" id="tintMask"></div>
+      <div class="thumb" id="tintThumb"></div>
+    </div>
+
+    <div class="control-row">
+      <label for="saturationSlider">Saturation</label>
+      <span class="intensity-value" id="saturationValue" tabindex="0" title="Haz clic para escribir un valor">100.0</span>
+    </div>
+    <div id="saturationSlider" class="basic-slider">
+      <div class="track"></div>
+      <div class="mask" id="saturationMask"></div>
+      <div class="thumb" id="saturationThumb"></div>
     </div>
   </section>
 
