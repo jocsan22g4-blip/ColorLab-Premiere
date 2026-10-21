@@ -150,7 +150,8 @@
     text-transform: uppercase;
     color: #888b91;
   }
-  .intensity-value {
+  .intensity-value,
+  .slider-value {
     font-family: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, monospace;
     font-variant-numeric: tabular-nums;
     color: #ffffff;
@@ -161,11 +162,13 @@
     border-bottom: 1px dashed transparent;
   }
   .intensity-value:hover,
-  .intensity-value:focus {
+  .intensity-value:focus,
+  .slider-value:hover,
+  .slider-value:focus {
     border-bottom-color: #4a6cf0;
     outline: none;
   }
-  #intensitySlider {
+  .slider {
     position: relative;
     height: 20px;
     display: flex;
@@ -173,7 +176,7 @@
     cursor: pointer;
     touch-action: none;
   }
-  #intensitySlider .track {
+  .slider .track {
     position: absolute;
     left: 0;
     right: 0;
@@ -181,7 +184,7 @@
     border-radius: 2px;
     background: linear-gradient(90deg, #203252 0%, #4a6cf0 55%, #f0cca4 100%);
   }
-  #intensitySlider .mask {
+  .slider .mask {
     position: absolute;
     right: 0;
     height: 2px;
@@ -189,7 +192,7 @@
     background: #16233a;
     width: 0%;
   }
-  #intensitySlider .thumb {
+  .slider .thumb {
     position: absolute;
     width: 16px;
     height: 16px;
@@ -199,7 +202,69 @@
     transform: translateX(-50%);
     box-shadow: 0 1px 4px rgba(0,0,0,0.6);
   }
-  #intensitySlider.dragging .thumb { background: #dfe6ff; }
+  .slider.dragging .thumb { background: #dfe6ff; }
+
+
+  /* --- Secciones plegables: Split Tone, Bloom, Halation, Film Grain ---
+     Cabecera = <div role="button"> (nunca <button>, ver arriba); el
+     interruptor de activar es otro <div role="switch">. */
+  .tool { border-top: 1px solid rgba(255,255,255,0.08); }
+  .tool-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 11px 0;
+    cursor: pointer;
+    user-select: none;
+    -webkit-user-select: none;
+  }
+  .tool-title {
+    font-family: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, monospace;
+    font-size: 10px;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: #b8babf;
+  }
+  .tool-title .chev { display: inline-block; width: 12px; color: #888b91; }
+  .tool.on .tool-title { color: #ffffff; }
+  .switch {
+    width: 30px;
+    height: 16px;
+    border-radius: 8px;
+    border: 1px solid rgba(255,255,255,0.25);
+    background-color: transparent;
+    position: relative;
+    cursor: pointer;
+    flex: 0 0 auto;
+  }
+  .switch .knob {
+    position: absolute;
+    top: 2px;
+    left: 2px;
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    background-color: #888b91;
+  }
+  .switch.on { background-color: #ffffff; border-color: #ffffff; }
+  .switch.on .knob { left: 16px; background-color: #001b33; }
+  .switch:focus-visible, .tool-head:focus-visible { outline: 2px solid #4a6cf0; outline-offset: 1px; }
+  .tool-body { padding: 2px 0 14px 0; }
+  .tool-body.hidden { display: none; }
+  .tool:not(.on) .tool-body .control-row,
+  .tool:not(.on) .tool-body .slider { opacity: 0.45; }
+  .tool-body .control-row { margin-top: 8px; margin-bottom: 4px; }
+  .check-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-top: 10px;
+    font-family: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, monospace;
+    font-size: 10px;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: #888b91;
+  }
 
   button {
     width: 100%;
@@ -276,12 +341,14 @@
       <label for="intensitySlider">Intensity</label>
       <span class="intensity-value" id="intensityValue" tabindex="0" title="Haz clic para escribir un valor">100.0</span>
     </div>
-    <div id="intensitySlider">
+    <div id="intensitySlider" class="slider">
       <div class="track"></div>
       <div class="mask" id="intensityMask"></div>
       <div class="thumb" id="intensityThumb"></div>
     </div>
   </section>
+
+  <section id="toolSections" style="padding-top:0"></section>
 
   <section>
     <button id="btnApply" class="primary">Aplicar al clip seleccionado</button>

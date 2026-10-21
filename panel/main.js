@@ -27,7 +27,9 @@
  * obligaba al usuario a elegir donde exponer, y alejaba el producto de su
  * version de Resolve. Las herramientas son Look, Intensity, Division de
  * tonos, Bloom, Halation y Film Grain -- las mismas en los dos hosts. Las
- * cuatro ultimas existen ya en el efecto pero todavia NO en este panel.
+ * cuatro ultimas viven en secciones plegables (ver SECTIONS); faltan los
+ * colores y los popup "Blend" de Bloom/Halation, que siguen en Controles
+ * de efectos.
  *
  * Novedades de la Etapa 3 que SI se quedan:
  *   - Doble clic en cualquier slider (Intensity incluido) = volver a su
@@ -347,6 +349,224 @@ const intensitySlider = createSlider({
   onCommit: () => applyCurrent({ only: "intensity" }),
 });
 
+/* ---------------- Secciones: Split Tone, Bloom, Halation, Film Grain ---------------- */
+
+/*
+ * UNA TABLA, NO CUATRO COPIAS DEL MISMO CODIGO.
+ *
+ * Rangos y defectos salen de ae/ColorLabAE.cpp / ColorLabAE.h (los rangos
+ * de los sliders son los "slider range" blandos de cada PF_ADD_FLOAT_SLIDERX,
+ * no los limites duros). Si se tocan alla, hay que tocarlos aqui.
+ *
+ * POR QUE `name` Y NO UN INDICE. Premiere entrega los parametros por
+ * posicion, pero "Amount", "Size", "Threshold" y "Color" se repiten en
+ * varias secciones, asi que el nombre solo no identifica nada. Cada control
+ * se ubica por SU SECCION: el parametro "Enable <seccion>" (unico) abre la
+ * seccion y los nombres siguientes pertenecen a ella hasta el siguiente
+ * "Enable". Ver indexParams().
+ *
+ * Fuera del panel, a proposito: los colores de Bloom/Halation y los popup
+ * "Blend" -- se quedan en Controles de efectos hasta verificar como expone
+ * Premiere esos tipos a UXP.
+ */
+const SECTIONS = [
+  {
+    id: "split", title: "Split Tone", enable: "Enable Split Tone",
+    controls: [
+      { key: "split.amount",  name: "Amount",    label: "Amount",    kind: "float", min: 0, max: 1,   dec: 3, def: 0.395 },
+      { key: "split.pivot",   name: "Pivot",     label: "Pivot",     kind: "float", min: 0, max: 1,   dec: 3, def: 0.300 },
+      { key: "split.hue",     name: "Hue Angle", label: "Hue Angle", kind: "float", min: 0, max: 360, dec: 1, def: 89.3 },
+      { key: "split.protect", name: "Protect Neutrals", label: "Protect Neutrals", kind: "bool", def: false },
+      { key: "split.view",    name: "View Influence",   label: "View Influence",   kind: "bool", def: false },
+    ],
+  },
+  {
+    id: "bloom", title: "Bloom", enable: "Enable Bloom",
+    controls: [
+      { key: "bloom.amount",    name: "Amount",    label: "Amount",    kind: "float", min: 0,   max: 100, dec: 1, def: 35 },
+      { key: "bloom.size",      name: "Size",      label: "Size",      kind: "float", min: 0.1, max: 10,  dec: 2, def: 1.5 },
+      { key: "bloom.threshold", name: "Threshold", label: "Threshold", kind: "float", min: 0,   max: 100, dec: 1, def: 65 },
+    ],
+  },
+  {
+    id: "halo", title: "Halation", enable: "Enable Halation",
+    controls: [
+      { key: "halo.amount",    name: "Amount",    label: "Amount",    kind: "float", min: 0,    max: 100, dec: 1, def: 40 },
+      { key: "halo.size",      name: "Size",      label: "Size",      kind: "float", min: 0.05, max: 1,   dec: 2, def: 0.25 },
+      { key: "halo.threshold", name: "Threshold", label: "Threshold", kind: "float", min: 0,    max: 100, dec: 1, def: 60 },
+      { key: "halo.edge",      name: "Edge",      label: "Edge",      kind: "float", min: 0,    max: 100, dec: 1, def: 80 },
+      { key: "halo.spread",    name: "Spread",    label: "Spread",    kind: "float", min: 0,    max: 100, dec: 1, def: 100 },
+    ],
+  },
+  {
+    id: "grain", title: "Film Grain", enable: "Enable Film Grain",
+    controls: [
+      { key: "grain.amount",     name: "Amount",          label: "Amount",          kind: "float", min: 0,    max: 100, dec: 1, def: 35 },
+      { key: "grain.size",       name: "Size",            label: "Size",            kind: "float", min: 0.01, max: 0.3, dec: 3, def: 0.035 },
+      { key: "grain.chroma",     name: "Chroma",          label: "Chroma",          kind: "float", min: 0,    max: 100, dec: 1, def: 0 },
+      { key: "grain.shadows",    name: "Shadows",         label: "Shadows",         kind: "float", min: 0,    max: 150, dec: 1, def: 62 },
+      { key: "grain.mids",       name: "Midtones",        label: "Midtones",        kind: "float", min: 0,    max: 150, dec: 1, def: 100 },
+      { key: "grain.highs",      name: "Highlights",      label: "Highlights",      kind: "float", min: 0,    max: 150, dec: 1, def: 45 },
+      { key: "grain.resolution", name: "Film Resolution", label: "Film Resolution", kind: "float", min: 0,    max: 100, dec: 1, def: 60 },
+      { key: "grain.structure",  name: "Structure",       label: "Structure",       kind: "float", min: 0,    max: 100, dec: 1, def: 50 },
+    ],
+  },
+];
+
+/// Todos los controles de las secciones, planos, incluyendo el "Enable" de
+/// cada una (clave `<id>.enable`).
+const ALL_CONTROLS = [];
+for (const sec of SECTIONS) {
+  ALL_CONTROLS.push({ key: `${sec.id}.enable`, name: sec.enable, kind: "bool", def: false });
+  for (const c of sec.controls) ALL_CONTROLS.push(c);
+}
+
+/// clave -> { value, dragging? }. Lo que lee la sincronizacion desde el clip
+/// y lo que lee writeParams() para saber que escribir.
+const controlUi = {};
+
+function makeEl(tag, className, attrs) {
+  const el = document.createElement(tag);
+  if (className) el.className = className;
+  if (attrs) for (const k of Object.keys(attrs)) el.setAttribute(k, attrs[k]);
+  return el;
+}
+
+/** Interruptor <div role="switch">. Devuelve { el, value }. */
+function createSwitch({ el, label, defaultValue, onChange }) {
+  let value = defaultValue;
+  el.setAttribute("role", "switch");
+  el.setAttribute("tabindex", "0");
+  el.setAttribute("aria-label", label);
+  function render() {
+    el.classList.toggle("on", value);
+    el.setAttribute("aria-checked", value ? "true" : "false");
+  }
+  function toggle(ev) {
+    if (ev) ev.stopPropagation();
+    value = !value;
+    render();
+    onChange(value);
+  }
+  el.addEventListener("click", toggle);
+  el.addEventListener("keydown", (ev) => {
+    if (ev.key === "Enter" || ev.key === " ") { ev.preventDefault(); toggle(ev); }
+  });
+  render();
+  return {
+    el,
+    get value() { return value; },
+    set value(v) { value = !!v; render(); },
+    render,
+  };
+}
+
+function buildSections() {
+  const host = document.getElementById("toolSections");
+  host.innerHTML = "";
+
+  for (const sec of SECTIONS) {
+    const root = makeEl("div", "tool");
+    const head = makeEl("div", "tool-head", { role: "button", tabindex: "0", "aria-expanded": "false" });
+    const title = makeEl("span", "tool-title");
+    const chev = makeEl("span", "chev");
+    chev.textContent = "+";
+    title.appendChild(chev);
+    title.appendChild(document.createTextNode(sec.title));
+    head.appendChild(title);
+
+    const enableUi = createSwitch({
+      el: makeEl("div", "switch"),
+      label: `Activar ${sec.title}`,
+      defaultValue: false,
+      onChange: (v) => {
+        root.classList.toggle("on", v);
+        applyCurrent({ only: `${sec.id}.enable` });
+      },
+    });
+    enableUi.el.appendChild(makeEl("div", "knob"));
+    head.appendChild(enableUi.el);
+    controlUi[`${sec.id}.enable`] = {
+      get value() { return enableUi.value; },
+      set value(v) { enableUi.value = v; root.classList.toggle("on", !!v); },
+    };
+
+    const body = makeEl("div", "tool-body hidden");
+    function fold() {
+      const open = body.classList.contains("hidden");
+      body.classList.toggle("hidden", !open);
+      head.setAttribute("aria-expanded", open ? "true" : "false");
+      chev.textContent = open ? "−" : "+";
+    }
+    head.addEventListener("click", fold);
+    head.addEventListener("keydown", (ev) => {
+      if (ev.key === "Enter" || ev.key === " ") { ev.preventDefault(); fold(); }
+    });
+
+    root.appendChild(head);
+    root.appendChild(body);
+    host.appendChild(root);
+
+    for (const c of sec.controls) {
+      const id = c.key.replace(".", "_");
+      if (c.kind === "bool") {
+        const row = makeEl("div", "check-row");
+        const lab = makeEl("span");
+        lab.textContent = c.label;
+        row.appendChild(lab);
+        const sw = createSwitch({
+          el: makeEl("div", "switch"),
+          label: c.label,
+          defaultValue: c.def,
+          onChange: () => applyCurrent({ only: c.key }),
+        });
+        sw.el.appendChild(makeEl("div", "knob"));
+        row.appendChild(sw.el);
+        body.appendChild(row);
+        controlUi[c.key] = {
+          get value() { return sw.value; },
+          set value(v) { sw.value = v; },
+        };
+      } else {
+        const row = makeEl("div", "control-row");
+        const lab = makeEl("label");
+        lab.textContent = c.label;
+        const val = makeEl("span", "slider-value", { id: `${id}Value`, tabindex: "0", title: "Haz clic para escribir un valor" });
+        row.appendChild(lab);
+        row.appendChild(val);
+        body.appendChild(row);
+
+        const slider = makeEl("div", "slider", { id: `${id}Slider` });
+        slider.appendChild(makeEl("div", "track"));
+        slider.appendChild(makeEl("div", "mask", { id: `${id}Mask` }));
+        slider.appendChild(makeEl("div", "thumb", { id: `${id}Thumb` }));
+        body.appendChild(slider);
+
+        // Los ids ya estan en el DOM (cuelgan de `host`, que es parte del
+        // documento) -- createSlider los busca por getElementById.
+        controlUi[c.key] = createSlider({
+          idPrefix: id,
+          paramKey: c.key,
+          min: c.min,
+          max: c.max,
+          decimals: c.dec,
+          defaultValue: c.def,
+          onCommit: () => applyCurrent({ only: c.key }),
+        });
+      }
+    }
+  }
+}
+
+/// Sliders que el usuario tiene agarrados ahora mismo (Intensity incluido).
+function anyControlDragging() {
+  if (intensitySlider.dragging) return true;
+  for (const key of Object.keys(controlUi)) {
+    if (controlUi[key].dragging) return true;
+  }
+  return false;
+}
+
 /* ---------------- Logica de Premiere (de la Etapa 1) ---------------- */
 
 /**
@@ -595,7 +815,48 @@ async function resolveTarget({ silent = false, insertIfMissing = true } = {}) {
 }
 
 /**
- * La parte barata: escribe Look/Intensity/Basic Adjustments sobre un
+ * Localiza cada parametro del componente. Look e Intensity van por nombre
+ * (son unicos); el resto, por seccion -- ver la nota de SECTIONS.
+ * Devuelve { map: clave -> ComponentParam, count }.
+ */
+function indexParams(live) {
+  const map = {};
+  const count = live.getParamCount();
+  let section = null;
+  for (let i = 0; i < count; i++) {
+    let p;
+    try { p = live.getParam(i); } catch { continue; }
+    const name = p?.displayName;
+    if (name === "Look") { map.look = p; continue; }
+    if (name === "Intensity") { map.intensity = p; continue; }
+    const opening = SECTIONS.find((sec) => sec.enable === name);
+    if (opening) {
+      section = opening;
+      map[`${opening.id}.enable`] = p;
+      continue;
+    }
+    if (section) {
+      const c = section.controls.find((x) => x.name === name);
+      if (c && !map[c.key]) map[c.key] = p;
+    }
+  }
+  return { map, count };
+}
+
+/// Crea el fotograma clave. Las casillas se intentan primero como booleano;
+/// si el runtime no lo acepta, como 0/1 (no esta verificado cual quiere).
+function makeKeyframe(param, control, value) {
+  if (control.kind !== "bool") return param.createKeyframe(value);
+  try {
+    return param.createKeyframe(!!value);
+  } catch (e) {
+    log(`createKeyframe(boolean) fallo para "${control.name}" (${e}); se prueba con 0/1.`, "warn");
+    return param.createKeyframe(value ? 1 : 0);
+  }
+}
+
+/**
+ * La parte barata: escribe Look, Intensity y las secciones sobre un
  * target YA resuelto por resolveTarget(). Sincrona salvo por el propio
  * executeTransaction -- es la que se llama repetidas veces por segundo
  * durante un arrastre en vivo.
@@ -627,14 +888,9 @@ function writeParams(target, { only = null, silent = false } = {}) {
   try {
     project.lockedAccess(() => {
       ok = project.executeTransaction((compoundAction) => {
-        const count = live.getParamCount();
-        let lookParam = null;
-        let intensityParam = null;
-        for (let i = 0; i < count; i++) {
-          const p = live.getParam(i);
-          if (p?.displayName === "Look") lookParam = p;
-          else if (p?.displayName === "Intensity") intensityParam = p;
-        }
+        const { map, count } = indexParams(live);
+        const lookParam = map.look || null;
+        const intensityParam = map.intensity || null;
 
         if (wants("look")) {
           if (lookParam) {
@@ -655,6 +911,18 @@ function writeParams(target, { only = null, silent = false } = {}) {
           } else if (!silent) {
             log(`No se encontro un parametro llamado "Intensity" entre ${count} parametros.`, "warn");
           }
+        }
+
+        for (const c of ALL_CONTROLS) {
+          if (!wants(c.key)) continue;
+          const param = map[c.key];
+          const ui = controlUi[c.key];
+          if (!param || !ui) {
+            if (!silent) log(`No se encontro el parametro "${c.name}" (${c.key}) entre ${count} parametros.`, "warn");
+            continue;
+          }
+          const kf = makeKeyframe(param, c, ui.value);
+          if (kf) compoundAction.addAction(param.createSetValueAction(kf, true));
         }
 
       }, "Color Lab: aplicar look");
@@ -742,6 +1010,7 @@ async function buildTickTimes(sequence) {
 /** Saca un numero de lo que sea que devuelva la API. */
 function asNumber(v) {
   if (typeof v === "number" && Number.isFinite(v)) return v;
+  if (typeof v === "boolean") return v ? 1 : 0;   // casillas
   // Por si el runtime devuelve un Keyframe en vez del valor crudo.
   if (v && typeof v === "object") {
     const inner = v.value;
@@ -779,32 +1048,38 @@ async function readParamValue(param, tickTimes) {
   return null;
 }
 
-/** Lee del clip los siete valores que el panel controla. */
+/** Lee del clip todo lo que el panel controla. */
 async function readParamsFromClip(target, sequence) {
   const { live } = target;
   const out = {};
-  let count;
+  let map;
   try {
-    count = live.getParamCount();
+    map = indexParams(live).map;
   } catch {
     return out;
   }
 
   const tickTimes = await buildTickTimes(sequence);
 
-  for (let i = 0; i < count; i++) {
-    let p;
-    try { p = live.getParam(i); } catch { continue; }
-    const name = p?.displayName;
-    if (name === "Look") {
-      const v = await readParamValue(p, tickTimes);
-      // Premiere guarda el popup base-0; el panel es base-1.
-      if (v !== null) out.look = Math.round(v) + 1;
-    } else if (name === "Intensity") {
-      const v = await readParamValue(p, tickTimes);
-      if (v !== null) out.intensity = v;
-    }
+  // Look primero y solo: la primera lectura decide que TickTime funciona y
+  // lo deja en cache; el resto va en paralelo ya con ese dato.
+  if (map.look) {
+    const v = await readParamValue(map.look, tickTimes);
+    // Premiere guarda el popup base-0; el panel es base-1.
+    if (v !== null) out.look = Math.round(v) + 1;
   }
+  if (map.intensity) {
+    const v = await readParamValue(map.intensity, tickTimes);
+    if (v !== null) out.intensity = v;
+  }
+
+  await Promise.all(ALL_CONTROLS.map(async (c) => {
+    const p = map[c.key];
+    if (!p) return;
+    const v = await readParamValue(p, tickTimes);
+    if (v === null) return;
+    out[c.key] = c.kind === "bool" ? v >= 0.5 : v;
+  }));
 
   // El primer sondeo ya dejo escrito en el log todo lo que hizo falta
   // saber; a partir de aqui, silencio.
@@ -828,7 +1103,7 @@ const SYNC_INTERVAL_MS = 1000;
 let syncing = false;
 
 function anySliderDragging() {
-  return intensitySlider.dragging;
+  return anyControlDragging();
 }
 
 /**
@@ -877,6 +1152,18 @@ async function syncFromClip() {
         Math.abs(values.intensity - intensitySlider.value) > 0.05) {
       intensitySlider.value = values.intensity;
       changed = true;
+    }
+
+    for (const c of ALL_CONTROLS) {
+      const v = values[c.key];
+      const ui = controlUi[c.key];
+      if (v === undefined || !ui) continue;
+      if (c.kind === "bool") {
+        if (!!v !== ui.value) { ui.value = v; changed = true; }
+      } else {
+        const tol = 0.5 * Math.pow(10, -c.dec);
+        if (Math.abs(v - ui.value) > tol) { ui.value = v; changed = true; }
+      }
     }
 
     if (changed) {
@@ -930,6 +1217,29 @@ btnDiagnose.addEventListener("click", async () => {
   cachedMatchName = null; // forzar relectura por si se reinstalo el efecto
   await findColorLabMatchName();
   await getSelectedVideoClip();
+  // Que parametros de Color Lab se encontraron en el clip, y cuales faltan.
+  // Es lo primero que hay que mirar si una seccion no responde.
+  try {
+    const target = await resolveTarget({ silent: true, insertIfMissing: false });
+    if (!target.ok) {
+      log("El clip seleccionado no tiene Color Lab: no hay parametros que listar.", "warn");
+    } else {
+      const { map, count } = indexParams(target.live);
+      const missing = [];
+      if (!map.look) missing.push("Look");
+      if (!map.intensity) missing.push("Intensity");
+      for (const c of ALL_CONTROLS) if (!map[c.key]) missing.push(c.key);
+      log(`Parametros del efecto: ${count}. Ubicados por el panel: ${Object.keys(map).length} de ${2 + ALL_CONTROLS.length}.`);
+      if (missing.length) log(`No ubicados: ${missing.join(", ")}`, "warn");
+      const names = [];
+      for (let i = 0; i < count; i++) {
+        try { names.push(`${i}:${target.live.getParam(i)?.displayName ?? "?"}`); } catch { names.push(`${i}:?`); }
+      }
+      log(`Orden en Premiere -> ${names.join(" | ")}`);
+    }
+  } catch (e) {
+    log(`Diagnostico de parametros fallo: ${e}`, "warn");
+  }
   log("— fin del diagnostico —");
 });
 
@@ -938,7 +1248,12 @@ try {
 } catch (e) {
   log(`buildLookStrip() fallo: ${e}`, "error");
 }
-log("Panel cargado. Selecciona un Look o ajusta Intensity/Basic Adjustments para aplicarlos al clip seleccionado.");
+try {
+  buildSections();
+} catch (e) {
+  log(`buildSections() fallo: ${e}`, "error");
+}
+log("Panel cargado. Selecciona un Look o ajusta cualquier control para aplicarlo al clip seleccionado.");
 
 // Sondeo de sincronizacion. No hay evento documentado de cambio de
 // seleccion en la API de UXP, asi que se pregunta cada segundo: es lo que
