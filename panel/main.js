@@ -91,8 +91,7 @@ const LOOKS = [
 // para que quepan como fichas.
 const CAMERAS = [
   "None",
-  "Sony S-Log3 · LC-709",
-  "Sony S-Log3 · Resolve",
+  "Sony S-Log3",
   "Canon C-Log3",
   "Panasonic V-Log",
   "Cinelike D",
