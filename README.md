@@ -60,7 +60,6 @@ panel/
   index.html          UI y estilos
   main.js             logica: tabla SECTIONS, sliders propios, sincronizacion, escritura selectiva
   assets/brand/       marca
-  assets/looks/*.jpg  miniaturas de los 15 Looks — YA NO SE USAN (la tira es de numeros)
 TESTING.md             como cargar el panel en Premiere y que verificar
 ```
 
